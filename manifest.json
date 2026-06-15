@@ -1,0 +1,27 @@
+{
+  "name": "Senaka Group",
+  "short_name": "Senaka Group",
+  "description": "Senaka Group Official App",
+  "start_url": "/CUBE-TEST-NEW-/index.html",
+  "scope": "/CUBE-TEST-NEW-/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#cc0000",
+  "dir": "ltr",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/CUBE-TEST-NEW-/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/CUBE-TEST-NEW-/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
