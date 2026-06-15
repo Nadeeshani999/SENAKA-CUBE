@@ -1,0 +1,2372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Senaka Builders (Pvt) Ltd — Cube Test Dashboard</title>
+  <meta name="description" content="Senaka Builders Cube Test Quality Dashboard">
+  <meta name="theme-color" content="#0a1a0e">
+  <link rel="manifest" href="/CUBE-TEST-NEW-/manifest.json">
+  <link rel="apple-touch-icon" href="/CUBE-TEST-NEW-/icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/CUBE-TEST-NEW-/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/CUBE-TEST-NEW-/icon-512.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Senaka Builders">
+  <script>
+    // ── Service Worker: register + force immediate update ──
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('pwabuilder-sw.js');
+          console.log('[SW] Registered:', reg.scope);
+
+          // If a new SW is waiting, tell it to skip waiting and take over NOW
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+
+          // Also handle the case where update arrives after page load
+          reg.addEventListener('updatefound', () => {
+            const newSW = reg.installing;
+            if (!newSW) return;
+            newSW.addEventListener('statechange', () => {
+              if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+                // New SW installed — tell it to activate immediately
+                newSW.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          });
+
+          // When SW controller changes (new SW took over), reload the page
+          // so the user always gets the fresh index.html
+          let refreshing = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!refreshing) {
+              refreshing = true;
+              window.location.reload();
+            }
+          });
+
+        } catch (err) {
+          console.log('[SW] Registration failed:', err);
+        }
+      });
+    }
+
+    // ── PWA Install Prompt ──
+    let _deferredInstallPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      _deferredInstallPrompt = e;
+      setTimeout(showInstallBanner, 1200);
+    });
+
+    window.addEventListener('appinstalled', () => {
+      hideInstallBanner();
+      _deferredInstallPrompt = null;
+    });
+
+    function showInstallBanner() {
+      const banner = document.getElementById('pwa-install-banner');
+      if (banner) banner.style.display = 'flex';
+    }
+    function hideInstallBanner() {
+      const banner = document.getElementById('pwa-install-banner');
+      if (banner) banner.style.display = 'none';
+    }
+    function triggerInstall() {
+      if (!_deferredInstallPrompt) return;
+      _deferredInstallPrompt.prompt();
+      _deferredInstallPrompt.userChoice.then(() => {
+        _deferredInstallPrompt = null;
+        hideInstallBanner();
+      });
+    }
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script>
+    // Verify jsPDF loaded; if not, load fallback
+    window.addEventListener('load', function() {
+      if (!window.jspdf) {
+        const s1 = document.createElement('script');
+        s1.src = 'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js';
+        s1.onload = function() {
+          const s2 = document.createElement('script');
+          s2.src = 'https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js';
+          document.head.appendChild(s2);
+        };
+        document.head.appendChild(s1);
+      }
+    });
+  </script>
+  <style>
+    :root {
+      --bg: #0a1a0e; --bg2: #0f1f12; --bg3: #141f16;
+      --card: #1a2e1d; --card2: #1f3323; --border: #2a4030;
+      --accent: #3b82f6; --accent2: #06b6d4; --accent3: #10b981;
+      --warn: #f59e0b; --danger: #ef4444;
+      --text: #e2e8f0; --text2: #94a3b8; --text3: #64748b;
+      --pass: #10b981; --fail: #ef4444; --pending: #f59e0b;
+      --site-color: #22c55e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    #topbar {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--bg2); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 1rem; padding: .75rem 1.25rem;
+    }
+    .tb-brand { display: flex; align-items: center; gap: .6rem; }
+    .tb-title { font-size: 1rem; font-weight: 700; letter-spacing: .04em; }
+    .tb-sub   { font-size: .68rem; color: var(--text3); margin-top: .08rem; }
+    .tb-credit{ font-size: .62rem; color: var(--accent2); margin-top: .06rem; font-style: italic; letter-spacing: .02em; }
+    .tb-spacer { flex: 1; }
+    #tb-clock { font-size: .8rem; color: var(--text2); white-space: nowrap; }
+
+    .site-selector-wrap { display: flex; align-items: center; gap: .6rem; }
+    .site-selector-label { font-size: .72rem; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+    #site-select {
+      background: var(--card); border: 1.5px solid var(--site-color); color: var(--text);
+      padding: .4rem 2.2rem .4rem .8rem; border-radius: 8px; font-size: .85rem; font-weight: 700;
+      cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right .6rem center;
+      transition: border-color .2s, box-shadow .2s; min-width: 160px; letter-spacing: .04em;
+    }
+    #site-select:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--site-color) 30%, transparent); }
+    #site-select option { background: #0f1f12; color: var(--text); }
+
+    .site-color-dot {
+      width: 10px; height: 10px; border-radius: 50%; background: var(--site-color); flex-shrink: 0;
+      box-shadow: 0 0 6px var(--site-color); transition: background .3s, box-shadow .3s;
+    }
+
+    .tb-refresh-btn {
+      background: rgba(6,182,212,.1); border: 1px solid rgba(6,182,212,.3);
+      color: var(--accent2); padding: .32rem .72rem; border-radius: 6px;
+      font-size: .75rem; cursor: pointer; transition: all .2s; white-space: nowrap; flex-shrink: 0;
+    }
+    .tb-refresh-btn:hover { background: rgba(6,182,212,.22); }
+
+    .tb-pdf-btn {
+      background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.4);
+      color: #10b981; padding: .32rem .72rem; border-radius: 6px;
+      font-size: .75rem; cursor: pointer; transition: all .2s; white-space: nowrap;
+      flex-shrink: 0; font-weight: 600; display: flex; align-items: center; gap: .35rem;
+    }
+    .tb-pdf-btn:hover { background: rgba(16,185,129,.25); border-color: rgba(16,185,129,.7); }
+    .tb-pdf-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .tb-pdf-btn.loading { opacity: .7; cursor: wait; }
+
+    @keyframes pdfSpin { to { transform: rotate(360deg); } }
+    .pdf-spin { display: inline-block; animation: pdfSpin .7s linear infinite; }
+
+    /* ── PDF progress toast ── */
+    #pdf-toast {
+      position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9000;
+      background: #1a2e1d; border: 1px solid #2a4030; border-radius: 10px;
+      padding: .75rem 1.1rem; min-width: 220px; max-width: 320px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.5);
+      display: none; flex-direction: column; gap: .4rem;
+      font-size: .8rem;
+    }
+    #pdf-toast.show { display: flex; }
+    #pdf-toast-title { color: #e2e8f0; font-weight: 600; }
+    #pdf-toast-msg   { color: #94a3b8; }
+    #pdf-toast-bar-wrap { background: #0f1f12; border-radius: 4px; height: 4px; overflow: hidden; }
+    #pdf-toast-bar { height: 4px; background: #10b981; border-radius: 4px; transition: width .3s; width: 0%; }
+
+    .tb-back-btn {
+      background: rgba(100,116,139,.1); border: 1px solid rgba(100,116,139,.3);
+      color: var(--text2); padding: .32rem .72rem; border-radius: 6px;
+      font-size: .75rem; cursor: pointer; transition: all .2s; white-space: nowrap; flex-shrink: 0;
+    }
+    .tb-back-btn:hover { background: rgba(100,116,139,.22); color: var(--text); border-color: rgba(100,116,139,.6); }
+
+    #main-content { padding: 1.25rem; }
+    .loading-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; gap: 1rem; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--site-color); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { color: var(--text2); font-size: .85rem; }
+
+    .error-wrap { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; }
+    .error-title { color: var(--danger); font-weight: 700; margin-bottom: .5rem; }
+    .error-msg { color: var(--text2); font-size: .8rem; line-height: 1.6; }
+
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; margin-bottom: 1rem; }
+    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: .4rem .5rem; position: relative; overflow: hidden; }
+    .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--site-color); }
+    .kpi-card.green::before  { background: var(--pass); }
+    .kpi-card.amber::before  { background: var(--warn); }
+    .kpi-card.red::before    { background: var(--danger); }
+    .kpi-card.blue::before   { background: var(--accent); }
+    .kpi-card.cyan::before   { background: var(--accent2); }
+    .kpi-card.site::before   { background: var(--site-color); }
+    .kpi-label { font-size: .52rem; color: var(--text3); text-transform: uppercase; letter-spacing: .04em; margin-bottom: .12rem; }
+    .kpi-val   { font-size: 1rem; font-weight: 700; }
+    .kpi-sub   { font-size: .55rem; color: var(--text2); margin-top: .08rem; }
+    .kpi-text-sm      { font-size: .58rem; font-weight: 600; word-break: break-all; line-height: 1.35; color: var(--text); }
+    .kpi-text-product { font-size: .85rem; font-weight: 700; color: var(--text); }
+
+    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; overflow: hidden; }
+    .chart-card.wide { grid-column: span 2; }
+    .chart-title { font-size: .8rem; font-weight: 600; margin-bottom: .2rem; }
+    .chart-sub   { font-size: .68rem; color: var(--text3); margin-bottom: .5rem; }
+    .chart-box   { position: relative; }
+
+    .cmp-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: .55rem; align-items: center; }
+    .cmp-legend-item { display: flex; align-items: center; gap: 6px; font-size: .68rem; color: #94a3b8; }
+    .cmp-swatch-bar { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    .cmp-swatch-line { width: 22px; height: 0px; border-top-width: 2.5px; border-top-style: solid; flex-shrink: 0; display: inline-block; }
+
+    #table-section { padding: 0 1.25rem 1.25rem; display: none; }
+    .table-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 1.25rem; }
+    .table-hdr  { display: flex; align-items: center; justify-content: space-between; padding: .85rem 1rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: .5rem; }
+    .table-hdr-title { font-size: .85rem; font-weight: 600; }
+    .tbl-search { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: .35rem .7rem; color: var(--text); font-size: .75rem; width: 200px; }
+    .tbl-search:focus { outline: none; border-color: var(--site-color); }
+    .tbl-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
+    table.dt { width: 100%; border-collapse: collapse; font-size: .75rem; }
+    table.dt th {
+      background: var(--bg3); color: var(--text2); padding: .6rem .8rem;
+      text-align: left; font-weight: 600; font-size: .68rem; text-transform: uppercase;
+      letter-spacing: .04em; position: sticky; top: 0; z-index: 1;
+      border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none;
+    }
+    table.dt th:hover { color: var(--site-color); }
+    table.dt td { padding: .55rem .8rem; border-bottom: 1px solid #1a2235; white-space: nowrap; }
+    table.dt .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .badge { display: inline-block; padding: .18rem .55rem; border-radius: 4px; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .badge-pass    { background: rgba(16,185,129,.15); color: var(--pass);    border: 1px solid rgba(16,185,129,.3); }
+    .badge-fail    { background: rgba(239,68,68,.15);  color: var(--danger);  border: 1px solid rgba(239,68,68,.3); }
+    .badge-pending { background: rgba(245,158,11,.15); color: var(--warn);    border: 1px solid rgba(245,158,11,.3); }
+    .badge-yes     { background: rgba(16,185,129,.12); color: var(--pass);    border: 1px solid rgba(16,185,129,.25); }
+    .badge-no      { background: rgba(239,68,68,.12);  color: var(--danger);  border: 1px solid rgba(239,68,68,.25); }
+    .badge-approved{ background: rgba(6,182,212,.12);  color: var(--accent2); border: 1px solid rgba(6,182,212,.25); }
+
+    .pg-header { margin-bottom: 1.25rem; }
+    .filter-bar { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
+    .filter-bar label { font-size: .75rem; color: var(--text2); display: flex; gap: .4rem; align-items: center; }
+    .filter-sel { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: .3rem .6rem; border-radius: 6px; font-size: .75rem; }
+    .filter-sel:focus { outline: none; border-color: var(--site-color); }
+
+    .kpi-card.int-date::before { background: linear-gradient(90deg,#a855f7,#06b6d4); }
+    .kpi-card.int-pole::before { background: linear-gradient(90deg,#06b6d4,#a855f7); }
+    .kpi-card.int-date, .kpi-card.int-pole {
+      padding: .4rem .5rem; border-radius: 6px;
+    }
+    .kpi-card.int-date .kpi-label, .kpi-card.int-pole .kpi-label {
+      font-size: .52rem; margin-bottom: .12rem;
+    }
+    .kpi-card.int-date .kpi-sub, .kpi-card.int-pole .kpi-sub {
+      font-size: .55rem; margin-top: .08rem;
+    }
+    .kpi-int-date { font-size: .75rem; font-weight: 700; color: #c084fc; letter-spacing: .03em; line-height: 1.3; }
+    .kpi-int-pole { font-size: 1rem; font-weight: 800; color: var(--accent2); letter-spacing: .03em; line-height: 1.2; }
+
+    #site-accent-bar { height: 3px; background: var(--site-color); transition: background .4s; box-shadow: 0 0 12px var(--site-color); }
+
+    /* ── Body Layout ── */
+    #body-layout {
+      display: flex; min-height: calc(100vh - 56px);
+    }
+
+    /* ── Left Sidebar ── */
+    #sidebar {
+      width: 25px; flex-shrink: 0;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      padding: 1rem 0 2rem;
+      position: sticky; top: 56px; height: calc(100vh - 56px);
+      overflow-y: auto;
+    }
+    .sidebar-label { display: none; }
+    .side-tab {
+      display: flex; flex-direction: column; align-items: center; gap: 0;
+      padding: .7rem 0;
+      background: none; border: none; border-left: 3px solid transparent;
+      color: var(--text3); cursor: pointer;
+      transition: color .2s, background .2s, border-color .2s;
+      width: 100%;
+    }
+    .side-tab:hover { color: var(--text2); background: rgba(255,255,255,.04); }
+    .side-tab.active {
+      color: var(--site-color);
+      border-left-color: var(--site-color);
+      background: color-mix(in srgb, var(--site-color) 8%, transparent);
+    }
+    .side-tab-icon { font-size: .8rem; }
+    .side-tab-name { display: none; }
+
+    /* ── Page Content (right of sidebar) ── */
+    #page-content { flex: 1; min-width: 0; overflow-x: hidden; }
+
+    /* ── Tender Dropdown (topbar) ── */
+    .tender-selector-wrap { display: flex; align-items: center; gap: .5rem; }
+    .tender-selector-label { font-size: .72rem; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+    #tender-select {
+      background: var(--card); border: 1.5px solid #10b981; color: var(--text);
+      padding: .4rem 2.2rem .4rem .8rem; border-radius: 8px; font-size: .82rem; font-weight: 600;
+      cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right .6rem center;
+      transition: border-color .2s, box-shadow .2s; min-width: 170px; max-width: 260px;
+      letter-spacing: .02em;
+    }
+    #tender-select:focus { outline: none; box-shadow: 0 0 0 2px rgba(16,185,129,.3); }
+    #tender-select option, #tender-select optgroup { background: #0f1f12; color: var(--text); }
+
+    #status-select {
+      background: var(--card); border: 1.5px solid #f59e0b; color: var(--text);
+      padding: .4rem 2.2rem .4rem .8rem; border-radius: 8px; font-size: .82rem; font-weight: 600;
+      cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right .6rem center;
+      transition: border-color .2s, box-shadow .2s; min-width: 150px;
+      letter-spacing: .02em;
+    }
+    #status-select:focus { outline: none; box-shadow: 0 0 0 2px rgba(245,158,11,.3); }
+    #status-select option { background: #0f1f12; color: var(--text); }
+    #status-select.status-completed { border-color: #10b981; }
+    #status-select.status-completed:focus { box-shadow: 0 0 0 2px rgba(16,185,129,.3); }
+    .tender-status-dot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+      background: #f59e0b; box-shadow: 0 0 5px #f59e0b;
+      transition: background .3s, box-shadow .3s;
+    }
+    .tender-status-dot.completed { background: #10b981; box-shadow: 0 0 5px #10b981; }
+    .tender-status-dot.all { background: #94a3b8; box-shadow: none; }
+
+    /* ── Tender status badge in table header ── */
+    .tender-section-badge {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .22rem .65rem; border-radius: 5px; font-size: .68rem; font-weight: 700; letter-spacing: .05em;
+      margin-left: .5rem; vertical-align: middle;
+    }
+    .tsb-ongoing   { background: rgba(245,158,11,.15); color: #f59e0b; border: 1px solid rgba(245,158,11,.3); }
+    .tsb-completed { background: rgba(16,185,129,.15); color: #10b981; border: 1px solid rgba(16,185,129,.3); }
+
+    /* ── Landing Page Overlay ── */
+    #landing-overlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #060e08;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      transition: opacity .5s ease, transform .5s ease;
+    }
+    #landing-overlay.fade-out {
+      opacity: 0; pointer-events: none; transform: scale(1.04);
+    }
+
+    .landing-bg-grid {
+      position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+    }
+    .landing-bg-grid::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(34,197,94,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34,197,94,.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      animation: gridPulse 4s ease-in-out infinite;
+    }
+    @keyframes gridPulse { 0%,100%{opacity:.6} 50%{opacity:1} }
+
+    .landing-glow {
+      position: absolute; width: 600px; height: 600px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(34,197,94,.07) 0%, transparent 70%);
+      top: 50%; left: 50%; transform: translate(-50%,-50%);
+      pointer-events: none;
+      animation: glowPulse 3s ease-in-out infinite;
+    }
+    @keyframes glowPulse { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.1)} }
+
+    .landing-inner {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0; padding: 2.5rem 2rem; max-width: 520px; width: 100%;
+    }
+
+    .landing-logo-wrap {
+      margin-bottom: 1.6rem;
+      display: flex; flex-direction: column; align-items: center; gap: .9rem;
+    }
+    .landing-cube-icon {
+      filter: drop-shadow(0 0 18px rgba(34,197,94,.45));
+      animation: cubeFloat 3s ease-in-out infinite;
+    }
+    @keyframes cubeFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+
+    .landing-company {
+      text-align: center;
+    }
+    .landing-company-name {
+      font-size: 1.55rem; font-weight: 800; letter-spacing: .04em;
+      color: #e2e8f0; line-height: 1.2;
+    }
+    .landing-company-sub {
+      font-size: .78rem; color: #64748b; margin-top: .3rem;
+      text-transform: uppercase; letter-spacing: .1em;
+    }
+    .landing-company-credit {
+      font-size: .65rem; color: #06b6d4; margin-top: .25rem;
+      font-style: italic; letter-spacing: .04em;
+    }
+
+    .landing-divider {
+      width: 60px; height: 2px;
+      background: linear-gradient(90deg, transparent, #22c55e, transparent);
+      margin: 1.4rem 0;
+    }
+
+    .landing-prompt {
+      font-size: .85rem; color: #94a3b8; text-align: center; margin-bottom: 1.2rem;
+      letter-spacing: .04em;
+    }
+
+    .landing-sites {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; width: 100%;
+    }
+    .landing-site-btn {
+      background: #0f1f12; border: 1.5px solid #2a4030;
+      border-radius: 10px; padding: .85rem 1rem;
+      cursor: pointer; transition: all .2s;
+      display: flex; flex-direction: column; align-items: flex-start; gap: .3rem;
+      text-align: left;
+    }
+    .landing-site-btn:hover {
+      border-color: var(--btn-color, #22c55e);
+      background: color-mix(in srgb, var(--btn-color, #22c55e) 8%, #0f1f12);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px color-mix(in srgb, var(--btn-color, #22c55e) 20%, transparent);
+    }
+    .landing-site-btn:active { transform: translateY(0); }
+    .lsb-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--btn-color, #22c55e);
+      box-shadow: 0 0 7px var(--btn-color, #22c55e);
+      margin-bottom: .1rem;
+    }
+    .lsb-name {
+      font-size: .9rem; font-weight: 700; color: #e2e8f0;
+      letter-spacing: .04em;
+    }
+    .lsb-hint {
+      font-size: .62rem; color: #64748b; letter-spacing: .04em;
+    }
+
+    .landing-footer {
+      margin-top: 1.8rem; font-size: .65rem; color: #334155;
+      text-align: center; letter-spacing: .04em;
+    }
+
+    /* ── Wizard Steps ── */
+    .lw-steps {
+      display: flex; align-items: center; gap: 0; margin-bottom: 1.4rem; width: 100%;
+    }
+    .lw-step {
+      display: flex; flex-direction: column; align-items: center; gap: .25rem;
+      flex-shrink: 0;
+    }
+    .lws-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #1a2e1d; border: 1.5px solid #2a4030;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .72rem; font-weight: 700; color: #64748b;
+      transition: all .3s;
+    }
+    .lws-label {
+      font-size: .6rem; color: #64748b; text-transform: uppercase; letter-spacing: .06em;
+      transition: color .3s;
+    }
+    .lw-step.active .lws-num {
+      background: var(--site-color, #22c55e);
+      border-color: var(--site-color, #22c55e);
+      color: #000; box-shadow: 0 0 10px color-mix(in srgb, var(--site-color,#22c55e) 50%, transparent);
+    }
+    .lw-step.active .lws-label { color: var(--site-color, #22c55e); }
+    .lw-step.done .lws-num { background: rgba(16,185,129,.15); border-color: #10b981; color: #10b981; }
+    .lw-step.done .lws-label { color: #10b981; }
+    .lw-step.dim .lws-num { opacity: .35; }
+    .lw-step.dim .lws-label { opacity: .35; }
+    .lws-line {
+      flex: 1; height: 1.5px; background: #2a4030; margin: 0 .4rem; margin-bottom: 1rem;
+      transition: background .3s;
+    }
+    .lws-line.done { background: #10b981; }
+    .lw-panel { width: 100%; animation: panelIn .25s ease; }
+    @keyframes panelIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    .lw-breadcrumb {
+      font-size: .68rem; color: #64748b; margin-bottom: .6rem;
+      display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+    }
+    .lw-bc-tag {
+      display: inline-flex; align-items: center; gap: .3rem;
+      padding: .15rem .5rem; border-radius: 4px;
+      background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2);
+      color: #22c55e; font-weight: 600; font-size: .65rem;
+    }
+    .lw-status-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; width: 100%; margin-bottom: .9rem;
+    }
+    .lw-status-btn {
+      display: flex; flex-direction: column; align-items: center; gap: .3rem;
+      padding: 1rem .8rem; border-radius: 10px; cursor: pointer;
+      border: 1.5px solid #2a4030; background: #0f1f12;
+      transition: all .2s; text-align: center;
+    }
+    .lw-status-btn:hover { transform: translateY(-2px); }
+    .lw-status-btn.ongoing { border-color: rgba(245,158,11,.4); }
+    .lw-status-btn.ongoing:hover { background: rgba(245,158,11,.08); border-color: #f59e0b; box-shadow: 0 6px 18px rgba(245,158,11,.15); }
+    .lw-status-btn.completed { border-color: rgba(16,185,129,.4); }
+    .lw-status-btn.completed:hover { background: rgba(16,185,129,.08); border-color: #10b981; box-shadow: 0 6px 18px rgba(16,185,129,.15); }
+    .lw-status-btn.all { border-color: rgba(148,163,184,.3); }
+    .lw-status-btn.all:hover { background: rgba(148,163,184,.07); border-color: #94a3b8; }
+    .lw-status-icon { font-size: 1.3rem; }
+    .lw-status-name { font-size: .9rem; font-weight: 700; color: #e2e8f0; }
+    .lw-status-hint { font-size: .62rem; color: #64748b; }
+    .lw-tender-loading {
+      display: flex; align-items: center; gap: .7rem;
+      color: #94a3b8; font-size: .8rem; padding: 1.2rem 0; justify-content: center;
+    }
+    .lw-mini-spinner {
+      width: 18px; height: 18px; border: 2px solid #2a4030;
+      border-top-color: var(--site-color, #22c55e);
+      border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+    .lw-tender-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; width: 100%; margin-bottom: .9rem;
+    }
+    .lw-tender-btn {
+      display: flex; flex-direction: column; align-items: flex-start; gap: .25rem;
+      padding: .8rem .9rem; border-radius: 10px; cursor: pointer;
+      border: 1.5px solid rgba(16,185,129,.3); background: rgba(16,185,129,.05);
+      transition: all .2s; text-align: left;
+    }
+    .lw-tender-btn:hover { background: rgba(16,185,129,.12); border-color: #10b981; transform: translateY(-2px); box-shadow: 0 5px 16px rgba(16,185,129,.15); }
+    .lw-tender-btn.all-completed { border-color: rgba(6,182,212,.3); background: rgba(6,182,212,.05); grid-column: span 2; justify-self: center; min-width: 200px; }
+    .lw-tender-btn.all-completed:hover { background: rgba(6,182,212,.12); border-color: #06b6d4; box-shadow: 0 5px 16px rgba(6,182,212,.15); }
+    .ltb-name { font-size: .85rem; font-weight: 700; color: #e2e8f0; }
+    .ltb-hint { font-size: .62rem; color: #64748b; }
+    .lw-back-btn {
+      background: none; border: 1px solid #2a4030; color: #64748b;
+      padding: .3rem .85rem; border-radius: 6px; font-size: .72rem; cursor: pointer;
+      transition: all .2s; margin-top: .2rem;
+    }
+    .lw-back-btn:hover { border-color: #64748b; color: #94a3b8; }
+
+
+    /* ── PWA Install Banner ── */
+    #pwa-install-banner {
+      display: none; position: fixed;
+      bottom: 1.2rem; left: 50%; transform: translateX(-50%);
+      z-index: 99998;
+      background: #0f1f12; border: 1.5px solid #22c55e;
+      border-radius: 14px; padding: .75rem 1.1rem;
+      min-width: 280px; max-width: 360px; width: calc(100vw - 2.4rem);
+      box-shadow: 0 8px 32px rgba(34,197,94,.25), 0 2px 8px rgba(0,0,0,.5);
+      align-items: center; gap: .85rem;
+      animation: bannerSlideUp .35s ease;
+    }
+    @keyframes bannerSlideUp {
+      from { opacity:0; transform:translateX(-50%) translateY(20px); }
+      to   { opacity:1; transform:translateX(-50%) translateY(0); }
+    }
+    .pwa-banner-icon  { font-size:1.7rem; flex-shrink:0; }
+    .pwa-banner-text  { flex:1; }
+    .pwa-banner-title { font-size:.85rem; font-weight:700; color:#e2e8f0; margin-bottom:.1rem; }
+    .pwa-banner-sub   { font-size:.68rem; color:#64748b; }
+    .pwa-banner-btns  { display:flex; flex-direction:column; gap:.4rem; flex-shrink:0; }
+    .pwa-install-btn  { background:#22c55e; color:#000; border:none; padding:.45rem 1rem; border-radius:8px; font-size:.78rem; font-weight:700; cursor:pointer; white-space:nowrap; }
+    .pwa-dismiss-btn  { background:none; border:1px solid #2a4030; color:#64748b; padding:.3rem .7rem; border-radius:6px; font-size:.7rem; cursor:pointer; text-align:center; }
+
+    @media (max-width: 640px) {
+      .landing-sites { grid-template-columns: 1fr 1fr; gap: .55rem; }
+      .landing-company-name { font-size: 1.2rem; }
+    }
+
+    @media (max-width: 640px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+      .charts-grid { grid-template-columns: 1fr; }
+      .chart-card.wide { grid-column: span 1; }
+      #topbar { padding: .6rem .8rem; gap: .5rem; flex-wrap: wrap; }
+      .tb-title { font-size: .85rem; }
+      #site-select { min-width: 120px; font-size: .78rem; }
+      #table-section { padding: 0 .8rem .8rem; }
+    }
+    /* ── Warning Modal ── */
+    #warn-modal-overlay {
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1rem;
+    }
+    #warn-modal {
+      background: #1a1f2e; border: 2px solid #ef4444;
+      border-radius: 14px; max-width: 860px; width: 100%;
+      box-shadow: 0 0 40px rgba(239,68,68,.35), 0 20px 60px rgba(0,0,0,.6);
+      animation: warnPop .25s ease;
+      overflow: hidden;
+    }
+    @keyframes warnPop { from{transform:scale(.88);opacity:0} to{transform:scale(1);opacity:1} }
+    .warn-header {
+      background: linear-gradient(135deg, rgba(239,68,68,.18), rgba(245,158,11,.1));
+      padding: 1.1rem 1.4rem; display: flex; align-items: center; gap: .75rem;
+      border-bottom: 1px solid rgba(239,68,68,.3);
+    }
+    .warn-icon { font-size: 1.7rem; flex-shrink: 0; }
+    .warn-title { font-size: 1rem; font-weight: 800; color: #ef4444; letter-spacing: .04em; }
+    .warn-subtitle { font-size: .7rem; color: #f59e0b; margin-top: .15rem; letter-spacing: .03em; }
+    .warn-body { padding: 1.2rem 1.4rem; }
+    .warn-body p { font-size: .8rem; color: #94a3b8; margin-bottom: .8rem; line-height: 1.6; }
+    .warn-rows-wrap { max-height: 240px; overflow-y: auto; overflow-x: auto; border: 1px solid rgba(239,68,68,.25); border-radius: 8px; margin-bottom: 1rem; }
+    .warn-rows-tbl { width: 100%; border-collapse: collapse; font-size: .73rem; table-layout: fixed; min-width: 680px; }
+    .warn-rows-tbl col.col-tender { width: 280px; }
+    .warn-rows-tbl col.col-date   { width: 100px; }
+    .warn-rows-tbl col.col-bed    { width: 65px; }
+    .warn-rows-tbl col.col-line   { width: 60px; }
+    .warn-rows-tbl col.col-age    { width: 90px; }
+    .warn-rows-tbl col.col-result { width: 90px; }
+    .warn-rows-tbl th { background: rgba(239,68,68,.12); color: #f87171; padding: .45rem .7rem; text-align: left; font-size: .62rem; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 0; white-space: nowrap; }
+    .warn-rows-tbl td { padding: .42rem .7rem; border-bottom: 1px solid rgba(239,68,68,.1); color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .warn-rows-tbl td.td-tender { white-space: normal; word-break: break-word; font-size: .68rem; line-height: 1.4; }
+    .warn-rows-tbl tr:last-child td { border-bottom: none; }
+    .warn-result-val { font-weight: 700; color: #ef4444; }
+    .warn-footer { display: flex; gap: .75rem; justify-content: flex-end; flex-wrap: wrap; }
+    .warn-btn-close { background: rgba(100,116,139,.15); border: 1px solid rgba(100,116,139,.3); color: #94a3b8; padding: .5rem 1.1rem; border-radius: 8px; font-size: .78rem; cursor: pointer; transition: all .2s; }
+    .warn-btn-close:hover { background: rgba(100,116,139,.28); color: #e2e8f0; }
+    .warn-btn-email { background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.45); color: #f87171; padding: .5rem 1.2rem; border-radius: 8px; font-size: .78rem; font-weight: 700; cursor: pointer; transition: all .2s; display: flex; align-items: center; gap: .45rem; }
+    .warn-btn-email:hover { background: rgba(239,68,68,.28); color: #fca5a5; }
+    .warn-btn-email:disabled { opacity: .5; cursor: not-allowed; }
+    .warn-email-status { font-size: .7rem; color: #94a3b8; padding: .3rem .6rem; border-radius: 5px; background: rgba(255,255,255,.04); align-self: center; }
+    .warn-email-status.ok  { color: #10b981; background: rgba(16,185,129,.1); }
+    .warn-email-status.err { color: #ef4444; background: rgba(239,68,68,.1); }
+
+    /* ── Inline Warning Banner in table rows ── */
+    .warn-row td { background: rgba(239,68,68,.06) !important; }
+    .result-warn { color: #ef4444 !important; font-weight: 700; }
+    .result-warn::after { content: ' ⚠'; font-size: .7em; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════ LANDING OVERLAY ════════════════════ -->
+<div id="landing-overlay">
+  <div class="landing-bg-grid"></div>
+  <div class="landing-glow"></div>
+
+  <div class="landing-inner">
+
+    <!-- Header -->
+    <div class="landing-logo-wrap">
+      <svg class="landing-cube-icon" width="52" height="52" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="10,2 18,6 18,14 10,18 2,14 2,6" fill="#6b7280" stroke="#9ca3af" stroke-width=".8"/>
+        <polygon points="10,2 18,6 10,10 2,6" fill="#9ca3af"/>
+        <polygon points="10,10 18,6 18,14 10,18" fill="#4b5563"/>
+        <polygon points="10,10 2,6 2,14 10,18" fill="#374151"/>
+      </svg>
+      <div class="landing-company">
+        <div class="landing-company-name">Senaka Builders (Pvt) Ltd</div>
+        <div class="landing-company-sub">CUBE TEST — Production Quality Dashboard</div>
+        <div class="landing-company-credit">Designed &amp; Developed by Nadeeshani (Data Analyst)</div>
+      </div>
+    </div>
+
+    <div class="landing-divider"></div>
+
+    <!-- ── STEP 1: Site (only step — goes straight to dashboard) ── -->
+    <div class="lw-panel" id="lwp-1">
+      <div class="landing-prompt">Select a site</div>
+      <div class="landing-sites">
+        <button class="landing-site-btn" style="--btn-color:#22c55e" onclick="wizSelectSite('Godagama')">
+          <div class="lsb-dot"></div><div class="lsb-name">GODAGAMA</div><div class="lsb-hint">4 Beds</div>
+        </button>
+        <button class="landing-site-btn" style="--btn-color:#a855f7" onclick="wizSelectSite('Kanabediara')">
+          <div class="lsb-dot"></div><div class="lsb-name">KANABEDIARA</div><div class="lsb-hint">2 Beds</div>
+        </button>
+        <button class="landing-site-btn" style="--btn-color:#f97316" onclick="wizSelectSite('Balangoda')">
+          <div class="lsb-dot"></div><div class="lsb-name">BALANGODA</div><div class="lsb-hint">2 Beds</div>
+        </button>
+        <button class="landing-site-btn" style="--btn-color:#06b6d4" onclick="wizSelectSite('Bataatha')">
+          <div class="lsb-dot"></div><div class="lsb-name">BATAATHA</div><div class="lsb-hint">3 Beds</div>
+        </button>
+        <button class="landing-site-btn" style="--btn-color:#f59e0b;grid-column:span 2;justify-self:center;min-width:200px" onclick="wizSelectSite('Embilipitiya')">
+          <div class="lsb-dot"></div><div class="lsb-name">EMBILIPITIYA</div><div class="lsb-hint">3 Beds</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="landing-footer" id="landing-footer">Select a site to begin</div>
+  </div>
+</div>
+<!-- ══════════════════════════════════════════════════════════ -->
+
+<!-- ════ PWA INSTALL BANNER ════ -->
+<div id="pwa-install-banner">
+  <div class="pwa-banner-icon">📲</div>
+  <div class="pwa-banner-text">
+    <div class="pwa-banner-title">Install Senaka Group App</div>
+    <div class="pwa-banner-sub">Add to home screen for quick access</div>
+  </div>
+  <div class="pwa-banner-btns">
+    <button class="pwa-install-btn" onclick="triggerInstall()">Install</button>
+    <button class="pwa-dismiss-btn" onclick="hideInstallBanner()">Not now</button>
+  </div>
+</div>
+
+<!-- ════════════════════ WARNING MODAL ════════════════════ -->
+<div id="warn-modal-overlay" style="display:none">
+  <div id="warn-modal">
+    <div class="warn-header">
+      <span class="warn-icon">🚨</span>
+      <div>
+        <div class="warn-title">LOW STRENGTH WARNING — 1st Test Result &lt; 33.5 MPa</div>
+        <div class="warn-subtitle">The following records are below the minimum target strength</div>
+      </div>
+    </div>
+    <div class="warn-body">
+      <p>The records below have a <strong style="color:#f87171">1st Test Result below 33.5 MPa</strong>. Please review and take corrective action.</p>
+      <div class="warn-rows-wrap">
+        <table class="warn-rows-tbl">
+          <colgroup>
+            <col class="col-tender"><col class="col-date"><col class="col-bed">
+            <col class="col-line"><col class="col-age"><col class="col-result">
+          </colgroup>
+          <thead><tr>
+            <th>Tender No</th><th>Casting Date</th><th>Bed</th><th>Line</th><th>1st Age (days)</th><th>1st Result</th>
+          </tr></thead>
+          <tbody id="warn-rows-tbody"></tbody>
+        </table>
+      </div>
+      <div class="warn-footer">
+        <span id="warn-email-status" class="warn-email-status" style="display:none"></span>
+        <button class="warn-btn-close" onclick="closeWarnModal()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ══════════════════════════════════════════════════════════ -->
+
+<div id="site-accent-bar"></div>
+
+<header id="topbar">
+  <div class="tb-brand">
+    <span style="display:inline-block;vertical-align:middle;margin-right:.1rem">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="10,2 18,6 18,14 10,18 2,14 2,6" fill="#6b7280" stroke="#9ca3af" stroke-width="1"/>
+        <polygon points="10,2 18,6 10,10 2,6" fill="#9ca3af"/>
+        <polygon points="10,10 18,6 18,14 10,18" fill="#4b5563"/>
+        <polygon points="10,10 2,6 2,14 10,18" fill="#374151"/>
+      </svg>
+    </span>
+    <div>
+      <div class="tb-title">Senaka Builders (Pvt) Ltd</div>
+      <div class="tb-sub">CUBE TEST — Production Quality Dashboard</div>
+      <div class="tb-credit">Designed &amp; Developed by Nadeeshani (Data Analyst)</div>
+    </div>
+  </div>
+  <div class="tb-spacer"></div>
+
+  <!-- Site display (read-only, set by wizard) -->
+  <div class="site-selector-wrap">
+    <span class="site-color-dot" id="site-dot"></span>
+    <span class="site-selector-label">Site:</span>
+    <span id="site-display" style="font-size:.88rem;font-weight:700;color:var(--site-color);letter-spacing:.05em;min-width:100px"></span>
+    <!-- Hidden select kept for JS compatibility -->
+    <select id="site-select" style="display:none">
+      <option value="Godagama">GODAGAMA</option>
+      <option value="Kanabediara">KANABEDIARA</option>
+      <option value="Balangoda">BALANGODA</option>
+      <option value="Bataatha">BATAATHA</option>
+      <option value="Embilipitiya">EMBILIPITIYA</option>
+    </select>
+  </div>
+
+  <!-- Status display (read-only, set by wizard) -->
+  <div class="tender-selector-wrap" id="status-selector-wrap" style="display:none">
+    <span class="tender-status-dot all" id="status-dot"></span>
+    <span class="tender-selector-label">Status:</span>
+    <span id="status-display" style="font-size:.88rem;font-weight:700;letter-spacing:.04em;color:#f59e0b"></span>
+    <!-- Hidden select kept for JS compatibility -->
+    <select id="status-select" style="display:none">
+      <option value="ALL">All</option>
+      <option value="ONGOING">⏳ Ongoing</option>
+      <option value="COMPLETED">✓ Completed</option>
+    </select>
+  </div>
+
+  <!-- Tender display (read-only, set by wizard) -->
+  <div class="tender-selector-wrap" id="tender-selector-wrap" style="display:none">
+    <span class="tender-status-dot completed" id="tender-dot"></span>
+    <span class="tender-selector-label">Tender:</span>
+    <span id="tender-display" style="font-size:.88rem;font-weight:700;letter-spacing:.04em;color:#10b981"></span>
+    <!-- Hidden select kept for JS compatibility -->
+    <select id="tender-select" style="display:none">
+      <option value="ALL">All Completed</option>
+    </select>
+  </div>
+
+  <button class="tb-back-btn" id="tb-back-btn" onclick="goBackToLanding()" title="Change site / filter">← Back</button>
+  <button class="tb-refresh-btn" onclick="refreshSite()">⟳ Refresh</button>
+  <button class="tb-pdf-btn" id="tb-pdf-btn" onclick="generatePDF()" title="Download PDF report for current view" disabled>
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2a1 1 0 011-1h6l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    PDF
+  </button>
+  <div id="tb-clock"></div>
+</header>
+
+<!-- PDF progress toast -->
+<div id="pdf-toast">
+  <div id="pdf-toast-title">🖨 Generating PDF…</div>
+  <div id="pdf-toast-msg">Preparing data…</div>
+  <div id="pdf-toast-bar-wrap"><div id="pdf-toast-bar"></div></div>
+</div>
+
+<!-- ══════════ BODY LAYOUT ══════════ -->
+<div id="body-layout">
+
+  <!-- LEFT SIDEBAR -->
+  <nav id="sidebar" style="display:none">
+    <div class="sidebar-label">VIEW</div>
+    <button class="side-tab" id="tab-ongoing"     onclick="switchDashTab('ONGOING')">
+      <span class="side-tab-icon">⏳</span>
+      <span class="side-tab-name">Ongoing</span>
+    </button>
+    <button class="side-tab" id="tab-completed-1" onclick="switchDashTab('completed-1')">
+      <span class="side-tab-icon">✅</span>
+      <span class="side-tab-name">Completed<br>Tender 1</span>
+    </button>
+    <button class="side-tab" id="tab-completed-2" onclick="switchDashTab('completed-2')">
+      <span class="side-tab-icon">✅</span>
+      <span class="side-tab-name">Completed<br>Tender 2</span>
+    </button>
+  </nav>
+
+  <!-- MAIN AREA -->
+  <div id="page-content">
+
+<div id="main-content">
+  <div class="loading-wrap">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading data...</div>
+  </div>
+</div>
+
+<!-- Production Register table lives here permanently — never re-created by JS -->
+<div id="table-section">
+  <div class="table-card">
+    <div class="table-hdr">
+      <span class="table-hdr-title" id="tbl-site-label">Production Register</span>
+      <input class="tbl-search" id="tbl-srch" placeholder="Search...">
+    </div>
+    <div class="tbl-wrap">
+      <table class="dt" id="main-tbl">
+        <thead><tr>
+          <th data-col="castingDate">Casting Date</th>
+          <th data-col="productionStatus">Cast</th>
+          <th data-col="bedNo">Bed</th>
+          <th data-col="lineNo">Line</th>
+          <th data-col="dailyQty" class="num">Qty/Day</th>
+          <th data-col="slump">Slump</th>
+          <th data-col="ageToDays" class="num">Age (days)</th>
+          <th data-col="test1Age" class="num">1st Age</th>
+          <th data-col="test1Result" class="num">1st Result</th>
+          <th data-col="test2Age" class="num">2nd Age</th>
+          <th data-col="test2Result" class="num">2nd Result</th>
+          <th data-col="test3Age" class="num">3rd Age</th>
+          <th data-col="test3Result" class="num">3rd Result</th>
+          <th data-col="approval">Approval</th>
+          <th data-col="lineReleasedDate">Line Released</th>
+        </tr></thead>
+        <tbody id="main-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+  </div><!-- /page-content -->
+</div><!-- /body-layout -->
+
+<script>
+const SHEET_ID = '1ozLGMxdJxZXPbhVnxn_iVXaNOulMM5kXxygTLOjfjPE';
+const MAX_COMPLETED_TENDERS = 2;
+
+function sheetCsvUrl(tabName) {
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+}
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', inQ = false, i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"' && text[i+1] === '"') { field += '"'; i += 2; continue; }
+      if (c === '"') { inQ = false; i++; continue; }
+      field += c;
+    } else {
+      if (c === '"') { inQ = true; i++; continue; }
+      if (c === ',') { row.push(field); field = ''; i++; continue; }
+      if (c === '\n' || (c === '\r' && text[i+1] === '\n')) {
+        row.push(field); field = '';
+        if (row.some(v => v.trim())) rows.push(row);
+        row = [];
+        i += (c === '\r') ? 2 : 1;
+        continue;
+      }
+      if (c === '\r') { row.push(field); field = ''; if (row.some(v => v.trim())) rows.push(row); row = []; i++; continue; }
+      field += c;
+    }
+    i++;
+  }
+  if (field || row.length) { row.push(field); if (row.some(v => v.trim())) rows.push(row); }
+  return rows;
+}
+
+function csvToObjects(csvText) {
+  const rows = parseCSV(csvText);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim());
+  return rows.slice(1).map(r => {
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = (r[idx] || '').trim(); });
+    return obj;
+  });
+}
+
+const SITE_BEDS = {
+  Godagama:     ['Bed 1','Bed 2','Bed 3','Bed 4'],
+  Kanabediara:  ['Bed 1','Bed 2'],
+  Balangoda:    ['Bed 1','Bed 2'],
+  Bataatha:     ['Bed 1','Bed 2','Bed 3'],
+  Embilipitiya: ['Bed 1','Bed 2','Bed 3'],
+};
+
+const SITE_ACCENT = {
+  Godagama:     '#22c55e',
+  Kanabediara:  '#a855f7',
+  Balangoda:    '#f97316',
+  Bataatha:     '#06b6d4',
+  Embilipitiya: '#f59e0b',
+};
+
+const COL = {
+  tenderNo:'Tender No', product:'Product', castingDate:'Casting Date ',
+  productionStatus:'Production Status', bedNo:'Bed No', lineNo:'Line No',
+  dailyQty:'Daily Production Qty', slump:'Slump Test Result', ageToDays:'Age to Date',
+  test1Age:'1st Test Age', test1Result:'1st Test Result',
+  test2Age:'2nd Test Age', test2Result:'2nd Test Result',
+  test3Age:'3rd Test Age', test3Result:'3rd Test Result',
+  approval:'Approval to Line Release', lineReleasedDate:'Line Released Date',
+  internalTestDate:'Internal Test Date', internalTestPoleNo:'Internal Test Pole No',
+};
+
+let activeSite = null;
+let chartInstances = {};
+let sortState = {};
+let siteCache = {};
+
+// ── Clock ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('tb-clock').textContent =
+    now.toLocaleDateString('en-GB', { weekday:'short', day:'2-digit', month:'short', year:'numeric' }) +
+    ' · ' + now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Accent ──
+function applyAccent(site) {
+  const color = SITE_ACCENT[site] || '#22c55e';
+  document.documentElement.style.setProperty('--site-color', color);
+  document.getElementById('site-accent-bar').style.background = color;
+  document.getElementById('site-accent-bar').style.boxShadow = `0 0 12px ${color}`;
+  document.getElementById('site-dot').style.background = color;
+  document.getElementById('site-dot').style.boxShadow = `0 0 6px ${color}`;
+  document.getElementById('site-select').style.borderColor = color;
+}
+
+// ── Dropdown change ──
+document.getElementById('site-select').addEventListener('change', function() {
+  activeSite = this.value;
+  applyAccent(activeSite);
+  // Reset status + tender dropdowns
+  activeStatus = 'ALL';
+  activeTender = 'ALL';
+  document.getElementById('status-selector-wrap').style.display = 'none';
+  document.getElementById('tender-selector-wrap').style.display = 'none';
+  if (siteCache[activeSite]) {
+    renderAll(activeSite, siteCache[activeSite]);
+  } else {
+    fetchSite(activeSite);
+  }
+});
+
+// ── Helpers ──
+function flexGet(row, colName) {
+  if (row[colName] !== undefined) return row[colName];
+  const trimmed = colName.trim().toLowerCase();
+  for (const k of Object.keys(row)) {
+    const kt = k.trim().toLowerCase();
+    if (kt === trimmed) return row[k];
+    if (kt.startsWith(trimmed)) return row[k];
+    if (trimmed.startsWith(kt)) return row[k];
+    const wa = trimmed.split(/\s+/), wb = kt.split(/\s+/);
+    if (wa.length >= 3 && wb.length >= 3 && wa.slice(0,3).join(' ') === wb.slice(0,3).join(' ')) return row[k];
+  }
+  return null;
+}
+
+const LK_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+function parseDate(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  const n = Number(s);
+  if (!isNaN(n) && n > 1000) {
+    const d = new Date(Date.UTC(1970,0,1) + Math.floor(n - 25569) * 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const lk = new Date(new Date(s).getTime() + LK_OFFSET_MS);
+    return lk.getUTCFullYear() + '-' + String(lk.getUTCMonth()+1).padStart(2,'0') + '-' + String(lk.getUTCDate()).padStart(2,'0');
+  }
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return m[3] + '-' + String(m[1]).padStart(2,'0') + '-' + String(m[2]).padStart(2,'0');
+  if (s.length >= 10 && /^\d{4}/.test(s)) return s.slice(0,10);
+  return s;
+}
+
+function normalizeRows(raw) {
+  return raw.map(r => {
+    const g = key => flexGet(r, key);
+    const pn = v => { if (v===null||v===''||v===undefined) return null; const n=parseFloat(v); return isNaN(n)?null:n; };
+    const pp = v => { if (v===null||v===undefined||String(v).trim()==='') return ''; const n=parseFloat(v); return isNaN(n)?String(v).trim():String(Math.round(n)); };
+    return {
+      tenderNo: g(COL.tenderNo)||'—', product: g(COL.product)||'—',
+      castingDate: parseDate(g(COL.castingDate)),
+      productionStatus: String(g(COL.productionStatus)||'').toUpperCase(),
+      bedNo: g(COL.bedNo)||'—', lineNo: g(COL.lineNo)||'—',
+      dailyQty: pn(g(COL.dailyQty))||0, slump: g(COL.slump)||'',
+      ageToDays: pn(g(COL.ageToDays)),
+      test1Age: pn(g(COL.test1Age)), test1Result: pn(g(COL.test1Result)),
+      test2Age: pn(g(COL.test2Age)), test2Result: pn(g(COL.test2Result)),
+      test3Age: pn(g(COL.test3Age)), test3Result: pn(g(COL.test3Result)),
+      approval: g(COL.approval)||'',
+      lineReleasedDate: parseDate(g(COL.lineReleasedDate)),
+      internalTestDate: parseDate(g(COL.internalTestDate)),
+      internalTestPoleNo: pp(g(COL.internalTestPoleNo)),
+      __tabLabel: r.__tabLabel || '',
+      __tabName:  r.__tabName  || '',
+    };
+  }).filter(r => r.castingDate || r.tenderNo !== '—');
+}
+
+// ── Fetch ──
+// Fetches one CSV tab; returns null if tab doesn't exist (404 / error page / empty)
+// seenTexts: a Set of full CSV strings already seen (ongoing tab, prior tabs) — used to detect
+// Google Sheets silently returning another tab's data for a missing tab name
+async function fetchTab(tabName, tagLabel, seenTexts) {
+  try {
+    const url = sheetCsvUrl(tabName);
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[fetchTab] HTTP ${res.status} for tab: "${tabName}"`);
+      return null;
+    }
+    const text = await res.text();
+    if (text.trim().startsWith('<!')) {
+      console.warn(`[fetchTab] HTML error page for tab: "${tabName}" — tab may not exist`);
+      return null;
+    }
+    // If this response matches any previously seen tab — it's a Sheets fallback, not a real tab
+    if (seenTexts && seenTexts.has(text)) {
+      console.warn(`[fetchTab] Tab "${tabName}" returned duplicate content — treating as non-existent`);
+      return null;
+    }
+    const objs = csvToObjects(text);
+    if (!objs.length) {
+      console.warn(`[fetchTab] Empty data for tab: "${tabName}"`);
+      return null;
+    }
+    console.info(`[fetchTab] ✓ Loaded ${objs.length} rows from tab: "${tabName}"`);
+    objs.forEach(r => { r.__tabLabel = tagLabel; r.__tabName = tabName; });
+    objs.__rawText = text; // stored so caller can add to seenTexts
+    return objs;
+  } catch(e) {
+    console.error(`[fetchTab] Exception for tab "${tabName}":`, e);
+    return null;
+  }
+}
+
+// Fetch completed tender tabs with fallback-dupe detection
+async function fetchCompletedTabs(site) {
+  const completedRaws = [];
+  const seenTexts = new Set(); // track all full texts seen so far
+
+  // Also fetch the ongoing tab text to exclude it as a false positive
+  try {
+    const ongoingRes = await fetch(sheetCsvUrl(`${site} - Ongoing`));
+    if (ongoingRes.ok) {
+      const t = await ongoingRes.text();
+      if (t && !t.trim().startsWith('<!')) seenTexts.add(t);
+    }
+  } catch(e) {}
+
+  for (let i = 1; i <= MAX_COMPLETED_TENDERS; i++) {
+    const tabA = `${site} - Completed-Tender ${i}`;
+    const tabB = `${site} - Completed- Tender ${i}`;
+    let rows = await fetchTab(tabA, `completed-${i}`, seenTexts);
+    if (!rows) rows = await fetchTab(tabB, `completed-${i}`, seenTexts);
+    if (rows) {
+      seenTexts.add(rows.__rawText); // register this tab's content
+      completedRaws.push(rows);
+    } else {
+      break;
+    }
+  }
+  return completedRaws;
+}
+
+async function fetchSite(site) {
+  const el = document.getElementById('main-content');
+  document.getElementById('table-section').style.display = 'none';
+  el.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">Loading ${site} data...</div></div>`;
+  try {
+    const ongoingRaw = await fetchTab(`${site} - Ongoing`, 'ongoing');
+    const completedRaws = await fetchCompletedTabs(site);
+
+    const allRaw = [
+      ...(ongoingRaw || []),
+      ...completedRaws.flat()
+    ];
+
+    if (!allRaw.length) throw new Error(`No data found for site: ${site}`);
+
+    siteCache[site] = normalizeRows(allRaw);
+    renderAll(site, siteCache[site]);
+  } catch (err) {
+    el.innerHTML = `<div class="error-wrap">
+      <div class="error-title">⚠ Data load failed</div>
+      <div class="error-msg">Error: ${err.message}<br><br>
+        Please check:<br>• Sheet is shared as <strong>"Anyone with the link can view"</strong><br>
+        • Tab names follow the pattern: <em>${site} - Ongoing</em>, <em>${site} - Completed-Tender 1</em><br>
+        • Internet connection is active
+      </div>
+    </div>`;
+  }
+}
+
+function refreshSite() {
+  delete siteCache[activeSite];
+  fetchSite(activeSite);
+}
+
+// ── Render All ──
+function renderAll_orig(site, rows) {
+  const beds = SITE_BEDS[site] || [];
+  const bedOptions = beds.map(b => `<option value="${b}">${b}</option>`).join('');
+
+  document.getElementById('main-content').innerHTML = `
+    <div class="pg-header">
+      <h2 style="font-size:1.2rem;font-weight:700">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-right:.4rem">
+          <polygon points="10,2 18,6 18,14 10,18 2,14 2,6" fill="#6b7280" stroke="#9ca3af" stroke-width="1"/>
+          <polygon points="10,2 18,6 10,10 2,6" fill="#9ca3af"/>
+          <polygon points="10,10 18,6 18,14 10,18" fill="#4b5563"/>
+          <polygon points="10,10 2,6 2,14 10,18" fill="#374151"/>
+        </svg>
+        <span style="color:var(--site-color)">${site}</span> — Cube Test Analysis
+      </h2>
+      <p style="font-size:.75rem;color:var(--text2);margin-top:.25rem">Production quality tracking · Cube strength results · Age analysis</p>
+    </div>
+
+    <div class="kpi-row" id="kpi-wrap"></div>
+
+    <div class="filter-bar">
+      <label>Production Status:
+        <select class="filter-sel" id="filt-status">
+          <option value="">All</option>
+          <option value="YES">YES</option>
+          <option value="NO">NO</option>
+        </select>
+      </label>
+      <label>Bed:
+        <select class="filter-sel" id="filt-bed">
+          <option value="">All Beds</option>
+          ${bedOptions}
+        </select>
+      </label>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Daily Production Qty</div>
+        <div class="chart-sub">Casting quantity per day</div>
+        <div class="chart-box" style="height:260px"><canvas id="ch-daily"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">1st Test Cube Strength</div>
+        <div class="chart-sub">MPa by casting date (min target 33.5 MPa)</div>
+        <div class="chart-box" style="height:260px"><canvas id="ch-strength"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">1st vs 2nd vs 3rd Test</div>
+        <div class="chart-sub">Parallel strength comparison per casting date</div>
+        <div class="cmp-legend">
+          <div class="cmp-legend-item"><span class="cmp-swatch-bar" style="background:rgba(146,64,14,0.85)"></span>1st Test MPa</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-bar" style="background:rgba(16,185,129,0.85)"></span>2nd Test MPa</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-bar" style="background:rgba(6,182,212,0.85)"></span>3rd Test MPa</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:#22c55e"></span>33.5 MPa</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:#f97316"></span>43.7 MPa</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:#ef4444"></span>50.0 MPa</div>
+        </div>
+        <div class="chart-box" style="height:240px"><canvas id="ch-compare"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Production by Bed</div>
+        <div class="chart-sub">Slot utilisation per bed</div>
+        <div class="chart-box" style="height:260px"><canvas id="ch-bed"></canvas></div>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-title">Cube Strength Trend — 1st, 2nd, 3rd Test</div>
+        <div class="chart-sub">All test results per casting date · <span style="color:#ef4444;font-weight:600">●</span> below reference target</div>
+        <div class="cmp-legend">
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:#92400e;border-top-style:solid"></span>1st Test</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:#10b981;border-top-style:solid"></span>2nd Test</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:#06b6d4;border-top-style:solid"></span>3rd Test</div>
+          <div class="cmp-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0"></span>Below target</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:rgba(146,64,14,.8);border-top-style:dashed"></span>33.5 MPa (1st)</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:rgba(249,115,22,.8);border-top-style:dashed"></span>43.7 MPa (2nd)</div>
+          <div class="cmp-legend-item"><span class="cmp-swatch-line" style="border-top-color:rgba(239,68,68,.8);border-top-style:dashed"></span>50.0 MPa (3rd)</div>
+        </div>
+        <div class="chart-box" style="height:240px"><canvas id="ch-strength-line"></canvas></div>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-title">Casting Date vs Slump Test Result</div>
+        <div class="chart-sub">Slump (mm) recorded per casting date</div>
+        <div class="chart-box" style="height:180px"><canvas id="ch-slump"></canvas></div>
+      </div>
+    </div>`;
+
+  document.getElementById('table-section').style.display = 'block';
+  document.getElementById('tbl-site-label').textContent = `Production Register — ${site}`;
+
+  window._currentRows = rows;
+  window._allRows = rows;
+
+  // ── Build Tender Tabs ──
+  buildTenderTabs(rows);
+
+  renderKPIs(rows);
+  renderCharts(rows);
+  renderTable(getFiltered(rows));
+
+  document.getElementById('filt-status').onchange = () => rerender();
+  document.getElementById('filt-bed').onchange    = () => rerender();
+  document.getElementById('tbl-srch').oninput     = () => renderTable(getFiltered(window._currentRows));
+}
+
+function rerender() {
+  const filtered = getFiltered(window._currentRows);
+  renderCharts(filtered);
+  renderTable(filtered);
+}
+
+// ── Status + Tender Dropdowns ──
+let activeTender = 'ALL';
+let activeStatus = 'ALL';
+let _ongoingTenders = [], _completedTenders = [];
+
+function isTenderCompleted(tenderRows) {
+  if (!tenderRows.length) return false;
+  // If rows came from a "Completed" tab, trust the tab label
+  if (tenderRows.some(r => r.__tabLabel && r.__tabLabel.startsWith('completed'))) return true;
+  // Fallback: all YES-cast rows have Approval=YES and a release date
+  const castYes = tenderRows.filter(r => r.productionStatus === 'YES');
+  if (!castYes.length) return false;
+  return castYes.every(r => String(r.approval).toUpperCase() === 'YES' && r.lineReleasedDate);
+}
+
+function buildTenderTabs(allRows) {
+  const statusWrap = document.getElementById('status-selector-wrap');
+  const tenderWrap = document.getElementById('tender-selector-wrap');
+  const tenderSel  = document.getElementById('tender-select');
+  const statusSel  = document.getElementById('status-select');
+  if (!statusWrap || !tenderWrap || !tenderSel || !statusSel) return;
+
+  activeStatus = 'ALL';
+  activeTender = 'ALL';
+
+  // Use __tabLabel (set during fetch) to reliably identify ongoing vs completed tabs
+  // __tabLabel is: 'ongoing', 'completed-1', 'completed-2', etc.
+  const hasOngoing   = allRows.some(r => r.__tabLabel === 'ongoing');
+  const completedNums = [...new Set(
+    allRows
+      .filter(r => r.__tabLabel && r.__tabLabel.startsWith('completed-'))
+      .map(r => parseInt(r.__tabLabel.split('-')[1]))
+  )].sort((a,b) => a-b);
+
+  _ongoingTenders   = hasOngoing ? ['ongoing'] : [];
+  // _completedTenders stores tab numbers like [1, 2, 3] mapped to tab names
+  _completedTenders = completedNums.map(n => ({
+    num: n,
+    label: `Completed-Tender ${n}`,
+    tabLabel: `completed-${n}`
+  }));
+
+  // Always show Status dropdown if ANY tabs were loaded
+  // Hide only if there's literally just one tab and it's ongoing-only
+  const totalTabs = (hasOngoing ? 1 : 0) + _completedTenders.length;
+  if (totalTabs <= 1 && !(_completedTenders.length > 0 && hasOngoing)) {
+    statusWrap.style.display = hasOngoing || _completedTenders.length ? 'flex' : 'none';
+    tenderWrap.style.display = 'none';
+    // Still wire up status sel even for single-type
+  }
+
+  // Always show status dropdown when data loaded
+  statusWrap.style.display = 'flex';
+  tenderWrap.style.display = 'none';
+
+  // Rebuild status select
+  const newStatusSel = statusSel.cloneNode(true);
+  statusSel.parentNode.replaceChild(newStatusSel, statusSel);
+  newStatusSel.value = 'ALL';
+
+  newStatusSel.querySelector('option[value="ONGOING"]').style.display   = hasOngoing ? '' : 'none';
+  newStatusSel.querySelector('option[value="COMPLETED"]').style.display = _completedTenders.length ? '' : 'none';
+
+  updateStatusDot('ALL');
+
+  newStatusSel.addEventListener('change', function() {
+    activeStatus = this.value;
+    activeTender = 'ALL';
+    updateStatusDot(activeStatus);
+    applyStatusFilter();
+  });
+
+  // Build tender sub-select for completed tenders
+  tenderSel.innerHTML = '<option value="ALL">All Completed</option>';
+  _completedTenders.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.tabLabel;
+    opt.textContent = `Tender ${t.num}`;
+    tenderSel.appendChild(opt);
+  });
+
+  const newTenderSel = tenderSel.cloneNode(true);
+  tenderSel.parentNode.replaceChild(newTenderSel, tenderSel);
+  newTenderSel.value = 'ALL';
+
+  newTenderSel.addEventListener('change', function() {
+    activeTender = this.value;
+    applyStatusFilter();
+  });
+}
+
+function applyStatusFilter() {
+  const tenderWrap = document.getElementById('tender-selector-wrap');
+  let filtered;
+  const label = document.getElementById('tbl-site-label');
+
+  if (activeStatus === 'ALL') {
+    filtered = window._allRows;
+    if (tenderWrap) tenderWrap.style.display = 'none';
+    label.textContent = `Production Register — ${activeSite}`;
+
+  } else if (activeStatus === 'ONGOING') {
+    filtered = window._allRows.filter(r => r.__tabLabel === 'ongoing');
+    if (tenderWrap) tenderWrap.style.display = 'none';
+    label.innerHTML = `Production Register — ${activeSite}&nbsp;<span class="tender-section-badge tsb-ongoing">⏳ Ongoing</span>`;
+
+  } else {
+    // COMPLETED — filter by tabLabel starting with 'completed-'
+    if (_completedTenders.length > 1 && tenderWrap) tenderWrap.style.display = 'flex';
+    else if (tenderWrap) tenderWrap.style.display = 'none';
+
+    if (activeTender === 'ALL') {
+      filtered = window._allRows.filter(r => r.__tabLabel && r.__tabLabel.startsWith('completed-'));
+      label.innerHTML = `Production Register — ${activeSite}&nbsp;<span class="tender-section-badge tsb-completed">✓ All Completed</span>`;
+    } else {
+      // activeTender is like 'completed-1', 'completed-2'
+      filtered = window._allRows.filter(r => r.__tabLabel === activeTender);
+      const num = activeTender.split('-')[1];
+      label.innerHTML = `Production Register — ${activeSite}&nbsp;<span class="tender-section-badge tsb-completed">✓ Completed Tender ${num}</span>`;
+    }
+  }
+
+  window._currentRows = filtered;
+  renderKPIs(filtered);
+  renderCharts(filtered);
+  renderTable(getFiltered(filtered));
+}
+
+function updateStatusDot(status) {
+  const dot = document.getElementById('status-dot');
+  const sel = document.getElementById('status-select');
+  if (!dot || !sel) return;
+  if (status === 'ALL') {
+    dot.className = 'tender-status-dot all';
+    sel.className = '';
+  } else if (status === 'COMPLETED') {
+    dot.className = 'tender-status-dot completed';
+    sel.className = 'status-completed';
+  } else {
+    dot.className = 'tender-status-dot';
+    sel.className = '';
+  }
+}
+
+function escAttr(s) { return String(s).replace(/"/g,'&quot;'); }
+
+
+// ── Filter ──
+function getFiltered(rows) {
+  const status = document.getElementById('filt-status')?.value || '';
+  const bed    = document.getElementById('filt-bed')?.value    || '';
+  const srch   = (document.getElementById('tbl-srch')?.value   || '').toLowerCase();
+  return rows.filter(r =>
+    (!status || r.productionStatus === status) &&
+    (!bed    || r.bedNo === bed) &&
+    (!srch   || Object.values(r).join(' ').toLowerCase().includes(srch))
+  );
+}
+
+// ── KPIs ──
+function renderKPIs(rows) {
+  const castYes    = rows.filter(r => r.productionStatus === 'YES');
+  const uniqueDates = new Set(rows.map(r => r.castingDate).filter(Boolean));
+  const totalQty   = castYes.reduce((a, r) => a + (r.dailyQty||0), 0);
+  const with1st    = castYes.filter(r => r.test1Result !== null);
+  const with3rd    = castYes.filter(r => r.test3Result !== null);
+  const approved   = rows.filter(r => String(r.approval).toUpperCase() === 'YES').length;
+  const released   = rows.filter(r => r.lineReleasedDate).length;
+  const tenderNo   = rows[0]?.tenderNo || '—';
+  const product    = rows[0]?.product  || '—';
+
+  const intDates = [...new Set(rows.map(r => r.internalTestDate).filter(Boolean))].sort();
+  const intDateDisplay = intDates.length === 0 ? '—' : intDates.length === 1 ? intDates[0] : `${intDates.length} dates`;
+  const intDateSub = intDates.length === 0 ? 'No data yet' : intDates.length === 1 ? 'All rows match' : intDates[0] + ' … ' + intDates[intDates.length-1];
+
+  const intPoles = [...new Set(rows.map(r => String(r.internalTestPoleNo||'').trim()).filter(p => p && p !== '—'))];
+  const poleDisplay = intPoles.length === 0 ? '—' : intPoles.length === 1 ? intPoles[0] : intPoles.length + ' values';
+
+  document.getElementById('kpi-wrap').innerHTML = `
+    <div class="kpi-card blue"><div class="kpi-label">Tender No</div><div class="kpi-text-sm">${tenderNo}</div></div>
+    <div class="kpi-card site"><div class="kpi-label">Product</div><div class="kpi-text-product">${product}</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Total Cast Days</div><div class="kpi-val">${uniqueDates.size}</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Total Production Qty</div><div class="kpi-val">${totalQty}</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Approved</div><div class="kpi-val">${approved}</div><div class="kpi-sub">Line release approved</div></div>
+    <div class="kpi-card cyan"><div class="kpi-label">Lines Released</div><div class="kpi-val">${released}</div><div class="kpi-sub">Released to date</div></div>
+    <div class="kpi-card int-date" style="min-width:160px">
+      <div class="kpi-label">🗓 Internal Test Date</div>
+      <div class="kpi-int-date">${intDateDisplay}</div>
+      <div class="kpi-sub" style="margin-top:.4rem">${intDateSub}</div>
+    </div>
+    <div class="kpi-card int-pole" style="min-width:160px">
+      <div class="kpi-label">🔖 Internal Test Pole No</div>
+      <div class="kpi-int-pole">${poleDisplay}</div>
+      <div class="kpi-sub" style="margin-top:.3rem">${intPoles.length===1?'Pole number':intPoles.length===0?'No data yet':'Multiple values'}</div>
+    </div>`;
+}
+
+// ── Charts ──
+const CD = {
+  plugins: {
+    legend: { display: false },
+    tooltip: { bodyColor:'#e2e8f0', titleColor:'#e2e8f0', backgroundColor:'#1f2940', borderColor:'#2a3550', borderWidth:1 }
+  },
+  scales: {
+    x: { ticks:{ color:'#64748b', font:{size:10}, maxRotation:60 }, grid:{ color:'#1e2d45' } },
+    y: { ticks:{ color:'#64748b', font:{size:10} }, grid:{ color:'#1e2d45' } }
+  }
+};
+
+function destroyChart(id) {
+  if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+}
+
+function renderCharts(rows) {
+  const castYes = rows.filter(r => r.productionStatus === 'YES');
+
+  destroyChart('daily');
+  const dailyDates = [...new Set(rows.map(r => r.castingDate))].sort().filter(Boolean);
+  const dailyQtys  = dailyDates.map(d => rows.filter(r => r.castingDate === d).reduce((a,r)=>a+r.dailyQty,0));
+  const siteColor  = SITE_ACCENT[activeSite] || '#22c55e';
+  if (document.getElementById('ch-daily')) {
+    chartInstances['daily'] = new Chart(document.getElementById('ch-daily'), {
+      type:'bar',
+      data:{ labels: dailyDates.map(d=>d.slice(5)), datasets:[{ label:'Units Cast', data:dailyQtys, backgroundColor: siteColor+'b3', borderRadius:4 }] },
+      options:{ ...CD, scales:{ x:CD.scales.x, y:{...CD.scales.y, beginAtZero:true} } }
+    });
+  }
+
+  destroyChart('strength');
+  const withS = castYes.filter(r => r.test1Result !== null);
+  if (document.getElementById('ch-strength')) {
+    chartInstances['strength'] = new Chart(document.getElementById('ch-strength'), {
+      type:'line',
+      data:{
+        labels: withS.map(r=>r.castingDate.slice(5)),
+        datasets:[{
+          label:'1st Test MPa', data: withS.map(r=>r.test1Result),
+          borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.1)',
+          pointBackgroundColor: withS.map(r=>r.test1Result>=33.5?'#10b981':'#ef4444'),
+          tension:.3, fill:true, pointRadius:4
+        },{
+          label:'Target (33.5)', data: withS.map(()=>33.5),
+          borderColor:'rgba(245,158,11,.6)', borderDash:[5,4], pointRadius:0
+        }]
+      },
+      options:{
+        plugins:{...CD.plugins, legend:{display:true, labels:{color:'#94a3b8',font:{size:10},boxWidth:10}}},
+        scales:{ x:CD.scales.x, y:{...CD.scales.y, min:20} }
+      }
+    });
+  }
+
+  destroyChart('compare');
+  const allDates = [...new Set(castYes.map(r=>r.castingDate).filter(Boolean))].sort();
+  const withTests = allDates.map(d => {
+    const cands = castYes.filter(r=>r.castingDate===d);
+    return cands.find(r=>r.test1Result!==null||r.test2Result!==null||r.test3Result!==null)||cands[0]||{castingDate:d,test1Result:null,test2Result:null,test3Result:null};
+  });
+  const n = allDates.length || 2;
+  if (document.getElementById('ch-compare')) {
+    chartInstances['compare'] = new Chart(document.getElementById('ch-compare'), {
+      type:'bar',
+      data:{
+        labels: allDates.map(d=>d.slice(5)),
+        datasets:[
+          {type:'bar',  label:'1st',data:withTests.map(r=>r.test1Result??null),backgroundColor:'rgba(146,64,14,0.75)',borderColor:'rgba(146,64,14,0.9)',borderWidth:1,borderRadius:3,order:2},
+          {type:'bar',  label:'2nd',data:withTests.map(r=>r.test2Result??null),backgroundColor:'rgba(16,185,129,0.75)',borderColor:'rgba(16,185,129,0.9)',borderWidth:1,borderRadius:3,order:2},
+          {type:'bar',  label:'3rd',data:withTests.map(r=>r.test3Result??null),backgroundColor:'rgba(6,182,212,0.75)',borderColor:'rgba(6,182,212,0.9)',borderWidth:1,borderRadius:3,order:2},
+          {type:'line', label:'33.5',data:Array(n).fill(33.5),borderColor:'#22c55e',borderWidth:2,pointRadius:0,pointHoverRadius:0,tension:0,fill:false,order:1,spanGaps:true},
+          {type:'line', label:'43.7',data:Array(n).fill(43.7),borderColor:'#f97316',borderWidth:2,pointRadius:0,pointHoverRadius:0,tension:0,fill:false,order:1,spanGaps:true},
+          {type:'line', label:'50.0',data:Array(n).fill(50.0),borderColor:'#ef4444',borderWidth:2,pointRadius:0,pointHoverRadius:0,tension:0,fill:false,order:1,spanGaps:true},
+        ]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{bodyColor:'#e2e8f0',titleColor:'#e2e8f0',backgroundColor:'#1f2940',borderColor:'#2a3550',borderWidth:1, callbacks:{label:ctx=>ctx.raw!==null?` ${ctx.dataset.label}: ${ctx.raw} MPa`:null, filter:item=>item.raw!==null}} },
+        scales:{ x:{offset:false,ticks:{color:'#64748b',font:{size:10},maxRotation:60,autoSkip:true},grid:{color:'#1e2d45',offset:false}}, y:{min:0,max:60,ticks:{color:'#64748b',font:{size:10},stepSize:10,callback:v=>v+' MPa'},grid:{color:'#1e2d45'}} }
+      }
+    });
+  }
+
+  destroyChart('bed');
+  const bedGroups = {};
+  castYes.forEach(r => { bedGroups[r.bedNo] = (bedGroups[r.bedNo]||0) + r.dailyQty; });
+  if (document.getElementById('ch-bed')) {
+    chartInstances['bed'] = new Chart(document.getElementById('ch-bed'), {
+      type:'doughnut',
+      data:{
+        labels: Object.keys(bedGroups),
+        datasets:[{data:Object.values(bedGroups), backgroundColor:['rgba(59,130,246,.8)','rgba(6,182,212,.8)','rgba(16,185,129,.8)','rgba(146,64,14,.8)','rgba(239,68,68,.8)'], borderWidth:2, borderColor:'#1a2235'}]
+      },
+      options:{ plugins:{legend:{display:true,labels:{color:'#94a3b8',font:{size:10},boxWidth:10}}, tooltip:CD.plugins.tooltip}, cutout:'65%' }
+    });
+  }
+
+  destroyChart('strength-line');
+  // Build a unified date axis covering any date that has at least one test result
+  const slAllDates = [...new Set(castYes.filter(r => r.test1Result!==null||r.test2Result!==null||r.test3Result!==null).map(r=>r.castingDate))].sort();
+  if (document.getElementById('ch-strength-line')) {
+    const slN = slAllDates.length || 2;
+    const slByDate = slAllDates.map(d => castYes.filter(r=>r.castingDate===d).find(r=>r.test1Result!==null||r.test2Result!==null||r.test3Result!==null)||{test1Result:null,test2Result:null,test3Result:null});
+    const t1 = slByDate.map(r=>r.test1Result??null);
+    const t2 = slByDate.map(r=>r.test2Result??null);
+    const t3 = slByDate.map(r=>r.test3Result??null);
+
+    // Indices where ANY test is below its reference
+    const redIndices = new Set(
+      slAllDates.map((_,i) => {
+        const below = (t1[i]!==null&&t1[i]<33.5)||(t2[i]!==null&&t2[i]<43.7)||(t3[i]!==null&&t3[i]<50.0);
+        return below ? i : -1;
+      }).filter(i=>i>=0)
+    );
+
+    // Custom plugin: draw red vertical highlight bands for below-reference columns
+    const redVLinePlugin = {
+      id: 'redVLine',
+      beforeDatasetsDraw(chart) {
+        const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+        if (!x) return;
+        ctx.save();
+        redIndices.forEach(i => {
+          const xPos = x.getPixelForValue(i);
+          const halfBand = (x.width / (slN || 1)) * 0.38;
+          ctx.fillStyle = 'rgba(239,68,68,0.10)';
+          ctx.fillRect(xPos - halfBand, top, halfBand * 2, bottom - top);
+          ctx.strokeStyle = 'rgba(239,68,68,0.55)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(xPos, top);
+          ctx.lineTo(xPos, bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Label which test(s) failed at this point
+          const failedNames = [];
+          if (t1[i]!==null && t1[i]<33.5) failedNames.push('1st Test');
+          if (t2[i]!==null && t2[i]<43.7) failedNames.push('2nd Test');
+          if (t3[i]!==null && t3[i]<50.0) failedNames.push('3rd Test');
+          if (failedNames.length) {
+            ctx.fillStyle = '#ef4444';
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(failedNames.join(', '), xPos, top - 2);
+          }
+        });
+        ctx.restore();
+      }
+    };
+
+    chartInstances['strength-line'] = new Chart(document.getElementById('ch-strength-line'), {
+      type: 'line',
+      plugins: [redVLinePlugin],
+      data: {
+        labels: slAllDates.map(d=>d.slice(5)),
+        datasets: [
+          {
+            label: '1st Test MPa',
+            data: t1, borderColor: '#92400e', backgroundColor: 'rgba(146,64,14,.06)',
+            pointBackgroundColor: t1.map(v=>v!==null&&v<33.5?'#ef4444':'#92400e'),
+            pointBorderColor:     t1.map(v=>v!==null&&v<33.5?'#ef4444':'#92400e'),
+            pointRadius:          t1.map(v=>v!==null&&v<33.5?6:4),
+            pointHoverRadius:     t1.map(v=>v!==null&&v<33.5?8:6),
+            tension:0.3, fill:false, order:2, spanGaps:true
+          },
+          {
+            label: '2nd Test MPa',
+            data: t2, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.06)',
+            pointBackgroundColor: t2.map(v=>v!==null&&v<43.7?'#ef4444':'#10b981'),
+            pointBorderColor:     t2.map(v=>v!==null&&v<43.7?'#ef4444':'#10b981'),
+            pointRadius:          t2.map(v=>v!==null&&v<43.7?6:4),
+            pointHoverRadius:     t2.map(v=>v!==null&&v<43.7?8:6),
+            tension:0.3, fill:false, order:2, spanGaps:true
+          },
+          {
+            label: '3rd Test MPa',
+            data: t3, borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,.06)',
+            pointBackgroundColor: t3.map(v=>v!==null&&v<50.0?'#ef4444':'#06b6d4'),
+            pointBorderColor:     t3.map(v=>v!==null&&v<50.0?'#ef4444':'#06b6d4'),
+            pointRadius:          t3.map(v=>v!==null&&v<50.0?6:4),
+            pointHoverRadius:     t3.map(v=>v!==null&&v<50.0?8:6),
+            tension:0.3, fill:false, order:2, spanGaps:true
+          },
+          { label:'33.5 MPa (1st)', data:Array(slN).fill(33.5), borderColor:'rgba(146,64,14,.8)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, pointHoverRadius:0, tension:0, fill:false, order:1, spanGaps:true },
+          { label:'43.7 MPa (2nd)', data:Array(slN).fill(43.7), borderColor:'rgba(249,115,22,.8)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, pointHoverRadius:0, tension:0, fill:false, order:1, spanGaps:true },
+          { label:'50.0 MPa (3rd)', data:Array(slN).fill(50.0), borderColor:'rgba(239,68,68,.8)',  borderWidth:1.5, borderDash:[5,4], pointRadius:0, pointHoverRadius:0, tension:0, fill:false, order:1, spanGaps:true },
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        layout: { padding: { top: 18 } },
+        plugins: {
+          legend: { display:false },
+          tooltip: {
+            bodyColor:'#e2e8f0', titleColor:'#e2e8f0',
+            backgroundColor:'#1f2940', borderColor:'#2a3550', borderWidth:1,
+            filter: item => item.raw !== null,
+            callbacks: {
+              label: ctx => {
+                const refs = [null, null, null, 33.5, 43.7, 50.0];
+                const ref  = refs[ctx.datasetIndex];
+                if (ref !== null) return ` Ref: ${ctx.raw} MPa`;
+                const thresholds = [33.5, 43.7, 50.0];
+                const thr = thresholds[ctx.datasetIndex];
+                const flag = ctx.raw < thr ? ' ⚠ Below target' : '';
+                return ` ${ctx.dataset.label}: ${ctx.raw} MPa${flag}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks:{color:'#64748b',font:{size:10},maxRotation:60}, grid:{color:'#1e2d45'} },
+          y: { min:20, max:60, ticks:{color:'#64748b',font:{size:10},callback:v=>v+' MPa'}, grid:{color:'#1e2d45'} }
+        }
+      }
+    });
+  }
+
+  destroyChart('slump');
+  const slumpRows  = rows.filter(r=>r.castingDate&&r.slump&&String(r.slump).trim()!==''&&String(r.slump).trim()!=='—');
+  const slumpDates = [...new Set(slumpRows.map(r=>r.castingDate))].sort();
+  const slumpVals  = slumpDates.map(d => { const v=parseFloat(String(slumpRows.find(r=>r.castingDate===d)?.slump||'').replace(/[^\d.]/g,'')); return isNaN(v)?null:v; });
+  if (document.getElementById('ch-slump')) {
+    chartInstances['slump'] = new Chart(document.getElementById('ch-slump'), {
+      type:'bar',
+      data:{
+        labels: slumpDates.map(d=>d.slice(5)),
+        datasets:[{
+          label:'Slump (mm)', data:slumpVals,
+          backgroundColor:slumpVals.map(v=>v===null?'rgba(100,116,139,0.4)':v<=75?'rgba(16,185,129,0.75)':v<=100?'rgba(245,158,11,0.75)':'rgba(239,68,68,0.75)'),
+          borderColor:slumpVals.map(v=>v===null?'rgba(100,116,139,0.6)':v<=75?'rgba(16,185,129,1)':v<=100?'rgba(245,158,11,1)':'rgba(239,68,68,1)'),
+          borderWidth:1, borderRadius:4
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}, tooltip:{bodyColor:'#e2e8f0',titleColor:'#e2e8f0',backgroundColor:'#1f2940',borderColor:'#2a3550',borderWidth:1, callbacks:{label:ctx=>ctx.raw!==null?` Slump: ${ctx.raw} mm`:' No data'}}},
+        scales:{ x:{ticks:{color:'#64748b',font:{size:10},maxRotation:60},grid:{color:'#1e2d45'}}, y:{beginAtZero:true,ticks:{color:'#64748b',font:{size:10},callback:v=>v+' mm'},grid:{color:'#1e2d45'}} }
+      }
+    });
+  }
+}
+
+// ── Table ──
+function renderTable_orig(rows) {
+  const tbody = document.getElementById('main-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = rows.map(r => {
+    const castBadge = r.productionStatus === 'YES'
+      ? '<span class="badge badge-yes">YES</span>'
+      : '<span class="badge badge-no">NO</span>';
+    const approvalBadge = r.approval
+      ? (String(r.approval).toUpperCase()==='YES'
+          ? '<span class="badge badge-approved">Approved</span>'
+          : `<span class="badge badge-pending">${r.approval}</span>`)
+      : '—';
+    return `<tr>
+      <td>${r.castingDate}</td><td>${castBadge}</td><td>${r.bedNo}</td><td>${r.lineNo}</td>
+      <td class="num">${r.dailyQty||'—'}</td><td>${r.slump||'—'}</td>
+      <td class="num">${r.ageToDays??'—'}</td><td class="num">${r.test1Age??'—'}</td>
+      <td class="num">${r.test1Result!==null?r.test1Result+' MPa':'—'}</td>
+      <td class="num">${r.test2Age??'—'}</td>
+      <td class="num">${r.test2Result!==null?r.test2Result+' MPa':'—'}</td>
+      <td class="num">${r.test3Age??'—'}</td>
+      <td class="num">${r.test3Result!==null?r.test3Result+' MPa':'—'}</td>
+      <td>${approvalBadge}</td><td>${r.lineReleasedDate||'—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('#main-tbl th').forEach(th => {
+    th.onclick = () => {
+      const col = th.dataset.col; if (!col) return;
+      sortState[col] = !sortState[col];
+      const sorted = [...rows].sort((a,b) => {
+        const va=a[col], vb=b[col];
+        if (va===null||va===undefined||va==='') return 1;
+        if (vb===null||vb===undefined||vb==='') return -1;
+        return sortState[col]?(va>vb?1:-1):(va<vb?1:-1);
+      });
+      renderTable(sorted);
+    };
+  });
+}
+
+// ════════════════════ DASHBOARD TABS ════════════════════
+function setActiveTab(tabId) {
+  document.querySelectorAll('.side-tab').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById(tabId);
+  if (el) el.classList.add('active');
+}
+
+function switchDashTab(tabKey) {
+  let status, tender;
+  if (tabKey === 'ONGOING') {
+    status = 'ONGOING'; tender = null;
+    setActiveTab('tab-ongoing');
+  } else if (tabKey === 'completed-1') {
+    status = 'COMPLETED'; tender = 'completed-1';
+    setActiveTab('tab-completed-1');
+  } else if (tabKey === 'completed-2') {
+    status = 'COMPLETED'; tender = 'completed-2';
+    setActiveTab('tab-completed-2');
+  }
+  wizStatus = status; wizTender = tender;
+  if (activeSite && siteCache[activeSite]) {
+    renderAll(activeSite, siteCache[activeSite]);
+    setTimeout(() => syncTopbarLabels(status, tender), 120);
+  } else if (activeSite) {
+    fetchSiteWithFilter(activeSite, status, tender);
+  }
+}
+
+function syncTopbarLabels(status, tender) {
+  const statusSel  = document.getElementById('status-select');
+  const tenderSel  = document.getElementById('tender-select');
+  const statusWrap = document.getElementById('status-selector-wrap');
+  const tenderWrap = document.getElementById('tender-selector-wrap');
+  const statusDisp = document.getElementById('status-display');
+  const tenderDisp = document.getElementById('tender-display');
+  if (status === 'ONGOING') {
+    if (statusSel) statusSel.value = 'ONGOING';
+    if (statusWrap) statusWrap.style.display = 'flex';
+    if (statusDisp) { statusDisp.textContent = '⏳ Ongoing'; statusDisp.style.color = '#f59e0b'; }
+    activeStatus = 'ONGOING'; updateStatusDot('ONGOING'); applyStatusFilter();
+  } else if (status === 'COMPLETED') {
+    if (statusSel) statusSel.value = 'COMPLETED';
+    if (statusWrap) statusWrap.style.display = 'flex';
+    if (statusDisp) { statusDisp.textContent = '✓ Completed'; statusDisp.style.color = '#10b981'; }
+    activeStatus = 'COMPLETED'; updateStatusDot('COMPLETED');
+    if (tender && tenderSel) {
+      activeTender = tender; tenderSel.value = tender;
+      if (tenderWrap) tenderWrap.style.display = 'flex';
+      if (tenderDisp) { const m = tender.match(/completed-(\d+)/); tenderDisp.textContent = m ? `Tender ${m[1]}` : tender; }
+    }
+    applyStatusFilter();
+  }
+}
+
+// ════════════════════ LANDING WIZARD ════════════════════
+const SITE_ACCENT_MAP = {
+  Godagama:'#22c55e', Kanabediara:'#a855f7', Balangoda:'#f97316',
+  Bataatha:'#06b6d4', Embilipitiya:'#f59e0b'
+};
+
+let wizSite = null, wizStatus = null, wizTender = null;
+
+function wizSetStep(n) { /* no-op — single step now */ }
+
+function wizSelectSite(site) {
+  wizSite = site;
+  activeSite = site;
+  wizStatus = 'ONGOING'; // default tab when landing
+  wizTender = null;
+  applyAccent(site);
+  document.getElementById('site-select').value = site;
+  const disp = document.getElementById('site-display');
+  if (disp) disp.textContent = site.toUpperCase();
+
+  // Show sidebar
+  const tbl = document.getElementById('sidebar');
+  if (tbl) { tbl.style.display = 'flex'; }
+  setActiveTab('tab-ongoing');
+
+  // Fade overlay
+  const overlay = document.getElementById('landing-overlay');
+  overlay.classList.add('fade-out');
+  overlay.addEventListener('transitionend', () => { overlay.style.display = 'none'; }, { once: true });
+
+  fetchSiteWithFilter(site, 'ONGOING', null);
+}
+
+function goBackToLanding() {
+  const overlay = document.getElementById('landing-overlay');
+  overlay.style.display = 'flex'; overlay.style.opacity = '1';
+  overlay.style.transform = ''; overlay.classList.remove('fade-out');
+
+  // Hide sidebar
+  const tbl = document.getElementById('sidebar');
+  if (tbl) tbl.style.display = 'none';
+
+  wizSite = null; wizStatus = null; wizTender = null; activeSite = null;
+  document.getElementById('main-content').innerHTML = '';
+  document.getElementById('table-section').style.display = 'none';
+  const sw = document.getElementById('status-selector-wrap');
+  const tw = document.getElementById('tender-selector-wrap');
+  if (sw) sw.style.display = 'none';
+  if (tw) tw.style.display = 'none';
+  const disp = document.getElementById('site-display');
+  if (disp) disp.textContent = '';
+  const statusDisp = document.getElementById('status-display');
+  if (statusDisp) statusDisp.textContent = '';
+  const tenderDisp = document.getElementById('tender-display');
+  if (tenderDisp) tenderDisp.textContent = '';
+  // Disable PDF button when returning to landing
+  const pdfBtn = document.getElementById('tb-pdf-btn');
+  if (pdfBtn) {
+    pdfBtn.disabled = true;
+    pdfBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2a1 1 0 011-1h6l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> PDF';
+  }
+}
+
+async function fetchSiteWithFilter(site, status, tenderChoice) {
+  const el = document.getElementById('main-content');
+  document.getElementById('table-section').style.display = 'none';
+  el.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">Loading ${site} data…</div></div>`;
+
+  try {
+    const ongoingRaw = await fetchTab(`${site} - Ongoing`, 'ongoing');
+    const completedRaws = await fetchCompletedTabs(site);
+
+    const allRaw = [...(ongoingRaw || []), ...completedRaws.flat()];
+    if (!allRaw.length) throw new Error(`No data found for site: ${site}`);
+
+    const allRows = normalizeRows(allRaw);
+    siteCache[site] = allRows;
+
+    // Apply filter from wizard selection
+    let filtered = allRows;
+    if (status === 'ONGOING') {
+      filtered = allRows.filter(r => r.__tabLabel === 'ongoing');
+    } else if (status === 'COMPLETED') {
+      if (tenderChoice && tenderChoice !== 'ALL_COMPLETED') {
+        filtered = allRows.filter(r => r.__tabLabel === tenderChoice);
+      } else {
+        filtered = allRows.filter(r => r.__tabLabel && r.__tabLabel.startsWith('completed-'));
+      }
+    }
+
+    renderAll(site, allRows);
+
+    // After renderAll, sync topbar labels to match choice
+    setTimeout(() => syncTopbarLabels(status, tenderChoice), 120);
+
+  } catch (err) {
+    el.innerHTML = `<div class="error-wrap">
+      <div class="error-title">⚠ Data load failed</div>
+      <div class="error-msg">${err.message}<br><br>
+        Please check the sheet is shared as "Anyone with the link can view".</div>
+    </div>`;
+  }
+}
+
+// ════════════════════ WARNING: 1st Test < 33.5 MPa ════════════════════
+// Email alerts are now handled automatically by Google Apps Script.
+// This section only shows the warning modal in the dashboard UI.
+const WARN_THRESHOLD = 33.5;
+
+let _warnRows = [];
+
+function checkAndShowWarnings(rows) {
+  _warnRows = rows.filter(r => r.test1Result !== null && r.test1Result < WARN_THRESHOLD);
+  if (!_warnRows.length) return;
+
+  const tbody = document.getElementById('warn-rows-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = _warnRows.map(r => `
+    <tr>
+      <td class="td-tender">${r.tenderNo || '—'}</td>
+      <td>${r.castingDate || '—'}</td>
+      <td>${r.bedNo || '—'}</td>
+      <td>${r.lineNo || '—'}</td>
+      <td>${r.test1Age ?? '—'}</td>
+      <td><span class="warn-result-val">${r.test1Result} MPa</span></td>
+    </tr>`).join('');
+
+  document.getElementById('warn-modal-overlay').style.display = 'flex';
+}
+
+function closeWarnModal() {
+  document.getElementById('warn-modal-overlay').style.display = 'none';
+}
+
+// ── Hook warning check into renderAll ──
+const _origRenderAll = renderAll_orig;
+function renderAll(site, rows) {
+  _origRenderAll(site, rows);
+
+  // Enable PDF button once data is loaded
+  const pdfBtn = document.getElementById('tb-pdf-btn');
+  if (pdfBtn) pdfBtn.disabled = false;
+
+  // Only warn on rows belonging to the currently active tab
+  let pageRows = rows;
+  if (wizStatus === 'ONGOING') {
+    pageRows = rows.filter(r => r.__tabLabel === 'ongoing');
+  } else if (wizStatus === 'COMPLETED') {
+    if (wizTender && wizTender !== 'ALL_COMPLETED') {
+      pageRows = rows.filter(r => r.__tabLabel === wizTender);
+    } else {
+      pageRows = rows.filter(r => r.__tabLabel && r.__tabLabel.startsWith('completed-'));
+    }
+  }
+
+  const warnCandidates = pageRows.filter(r => r.productionStatus === 'YES');
+  checkAndShowWarnings(warnCandidates);
+}
+
+// ── Highlight warning rows in table ──
+const _origRenderTable = renderTable_orig;
+function renderTable(rows) {
+  const tbody = document.getElementById('main-tbody');
+  if (!tbody) return _origRenderTable(rows);
+
+  tbody.innerHTML = rows.map(r => {
+    const isLow = r.test1Result !== null && r.test1Result < WARN_THRESHOLD;
+    const castBadge = r.productionStatus === 'YES'
+      ? '<span class="badge badge-yes">YES</span>'
+      : '<span class="badge badge-no">NO</span>';
+    const approvalBadge = r.approval
+      ? (String(r.approval).toUpperCase()==='YES'
+          ? '<span class="badge badge-approved">Approved</span>'
+          : `<span class="badge badge-pending">${r.approval}</span>`)
+      : '—';
+    const res1Html = r.test1Result !== null
+      ? `<span class="${isLow ? 'result-warn' : ''}">${r.test1Result} MPa</span>`
+      : '—';
+    return `<tr class="${isLow ? 'warn-row' : ''}">
+      <td>${r.castingDate}</td><td>${castBadge}</td><td>${r.bedNo}</td><td>${r.lineNo}</td>
+      <td class="num">${r.dailyQty||'—'}</td><td>${r.slump||'—'}</td>
+      <td class="num">${r.ageToDays??'—'}</td><td class="num">${r.test1Age??'—'}</td>
+      <td class="num">${res1Html}</td>
+      <td class="num">${r.test2Age??'—'}</td>
+      <td class="num">${r.test2Result!==null?r.test2Result+' MPa':'—'}</td>
+      <td class="num">${r.test3Age??'—'}</td>
+      <td class="num">${r.test3Result!==null?r.test3Result+' MPa':'—'}</td>
+      <td>${approvalBadge}</td><td>${r.lineReleasedDate||'—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('#main-tbl th').forEach(th => {
+    th.onclick = () => {
+      const col = th.dataset.col; if (!col) return;
+      sortState[col] = !sortState[col];
+      const sorted = [...rows].sort((a,b) => {
+        const va=a[col], vb=b[col];
+        if (va===null||va===undefined||va==='') return 1;
+        if (vb===null||vb===undefined||vb==='') return -1;
+        return sortState[col]?(va>vb?1:-1):(va<vb?1:-1);
+      });
+      renderTable(sorted);
+    };
+  });
+}
+// ══════════════════════════════════════════════════════════════
+// Do NOT auto-fetch — wait for wizard completion
+
+// ══════════════════════════════════════════════════════════════
+// ── PDF GENERATION ENGINE ──
+// ══════════════════════════════════════════════════════════════
+
+function pdfToast(msg, pct) {
+  const t = document.getElementById('pdf-toast');
+  document.getElementById('pdf-toast-msg').textContent = msg;
+  document.getElementById('pdf-toast-bar').style.width = pct + '%';
+  t.classList.add('show');
+}
+function pdfToastHide() {
+  setTimeout(() => document.getElementById('pdf-toast').classList.remove('show'), 1800);
+}
+
+function hexToRgb(hex) {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return r ? [parseInt(r[1],16)/255, parseInt(r[2],16)/255, parseInt(r[3],16)/255] : [0.1,0.1,0.1];
+}
+
+function captureChart(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  try { return canvas.toDataURL('image/png', 0.95); } catch(e) { return null; }
+}
+
+async function generatePDF() {
+  if (!activeSite || !window._allRows) {
+    alert('Please select a site and wait for data to load first.');
+    return;
+  }
+
+  const PDF_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2a1 1 0 011-1h6l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M5 9h6M5 11.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> PDF';
+
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    pdfToast('Loading PDF library…', 5);
+    document.getElementById('pdf-toast').classList.add('show');
+    try {
+      await new Promise((resolve, reject) => {
+        const s1 = document.createElement('script');
+        s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s1.onload = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+          s2.onload = resolve; s2.onerror = reject;
+          document.head.appendChild(s2);
+        };
+        s1.onerror = reject;
+        document.head.appendChild(s1);
+      });
+    } catch(e) {
+      document.getElementById('pdf-toast').classList.remove('show');
+      alert('PDF library failed to load. Check internet connection.');
+      return;
+    }
+    if (!window.jspdf || !window.jspdf.jsPDF) return;
+  }
+
+  const btn = document.getElementById('tb-pdf-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="pdf-spin">⏳</span> Building…';
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const PW = doc.internal.pageSize.getWidth();
+    const PH = doc.internal.pageSize.getHeight();
+    const MAR = 12;
+    const CW  = PW - MAR * 2;
+
+    const now     = new Date();
+    const dateStr = now.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
+    const timeStr = now.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
+
+    const reportRows  = (window._currentRows || window._allRows || []).slice();
+    const statusLabel = wizStatus==='ONGOING' ? 'Ongoing' : wizStatus==='COMPLETED' ? 'Completed' : 'All';
+    const tenderLabel = (activeTender && activeTender !== 'ALL')
+      ? activeTender.replace('completed-','Tender ') : '';
+
+    // ── Black & white page chrome ──
+    function drawChrome(title, pageNum) {
+      // thin top border line
+      doc.setDrawColor(0); doc.setLineWidth(0.6);
+      doc.line(MAR, 8, PW-MAR, 8);
+
+      // company name left, title centre, page right
+      doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(0);
+      doc.text('Senaka Builders (Pvt) Ltd', MAR, 6);
+      doc.text(title, PW/2, 6, {align:'center'});
+      doc.text(`Page ${pageNum}`, PW-MAR, 6, {align:'right'});
+
+      // thin bottom border
+      doc.setDrawColor(0); doc.setLineWidth(0.4);
+      doc.line(MAR, PH-6, PW-MAR, PH-6);
+      doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(80);
+      doc.text('Designed & Developed by Nadeeshani (Data Analyst)  ·  Confidential', MAR, PH-3.5);
+      doc.text(`${activeSite}  ·  ${statusLabel}${tenderLabel?' — '+tenderLabel:''}  ·  ${dateStr} ${timeStr}`, PW-MAR, PH-3.5, {align:'right'});
+    }
+
+    // ── Safe canvas capture (composited onto white background for print clarity) ──
+    function snapChart(id) {
+      try {
+        const el = document.getElementById(id);
+        if (!el || el.width === 0 || el.height === 0) return null;
+        const tmp = document.createElement('canvas');
+        tmp.width = el.width; tmp.height = el.height;
+        const tctx = tmp.getContext('2d');
+        tctx.fillStyle = '#ffffff';
+        tctx.fillRect(0, 0, tmp.width, tmp.height);
+        tctx.drawImage(el, 0, 0);
+        const url = tmp.toDataURL('image/png', 0.95);
+        if (!url || url.length < 200 || !url.startsWith('data:image/png')) return null;
+        return url;
+      } catch(e) { return null; }
+    }
+
+    function safeAddImage(url, x, y, w, h) {
+      if (!url) {
+        doc.setDrawColor(150); doc.setLineWidth(0.3);
+        doc.rect(x, y, w, h, 'S');
+        doc.setFontSize(6); doc.setTextColor(120);
+        doc.text('Chart unavailable', x+w/2, y+h/2, {align:'center'});
+        return;
+      }
+      try { doc.addImage(url, 'PNG', x, y, w, h); } catch(e) {
+        doc.setDrawColor(150); doc.setLineWidth(0.3);
+        doc.rect(x, y, w, h, 'S');
+        doc.setFontSize(6); doc.setTextColor(120);
+        doc.text('Chart unavailable', x+w/2, y+h/2, {align:'center'});
+      }
+    }
+
+    // ═══════════════════════════════════════════════
+    // PAGE 1 — INFO HEADER + CHART + DATA TABLE
+    // ═══════════════════════════════════════════════
+    pdfToast('Building report…', 15);
+    await new Promise(r => setTimeout(r, 20));
+
+    drawChrome('CUBE TEST RESULT', 1);
+    let cy = 11;
+
+    // ── Info block ──
+    doc.setLineWidth(0.4); doc.setDrawColor(0);
+    doc.rect(MAR, cy, CW, 20, 'S');
+
+    // left column
+    const fr  = reportRows[0] || {};
+    const tNo = fr.tenderNo || '—';
+    const prd = fr.product  || '—';
+    const iDt = fr.internalTestDate   || '—';
+    const iPo = fr.internalTestPoleNo || '—';
+
+    const lx1 = MAR+3,       vx1 = MAR+36;
+    const lx2 = MAR+CW/2+3,  vx2 = MAR+CW/2+36;
+
+    const infoData = [
+      ['Site',               activeSite,          'Product',               prd],
+      [`${statusLabel} Tender No`,  tNo,                 'Internal Test Pole No', iPo],
+      ['Internal Test Date', iDt,                 'Generated',             dateStr+'  '+timeStr],
+    ];
+
+    // vertical divider
+    doc.setLineWidth(0.3); doc.setDrawColor(0);
+    doc.line(MAR+CW/2, cy, MAR+CW/2, cy+20);
+
+    infoData.forEach(([l1,v1,l2,v2], i) => {
+      const ry = cy + 5 + i*5.5;
+      doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(0);
+      doc.text(l1 + '  :', lx1, ry);
+      doc.text(l2 + '  :', lx2, ry);
+      doc.setFont('helvetica','normal'); doc.setTextColor(0);
+      doc.text(String(v1).slice(0,36), vx1, ry);
+      doc.text(String(v2).slice(0,28), vx2, ry);
+    });
+
+    cy += 23;
+
+    // ── Cube Strength Trend chart ──
+    pdfToast('Capturing chart…', 40);
+    await new Promise(r => setTimeout(r, 80));
+
+    const chartImg = snapChart('ch-strength-line');
+    const CHART_H  = 44;
+    doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(0);
+    doc.text('Cube Strength Trend — 1st, 2nd, 3rd Test', MAR, cy+4);
+
+    // ── Chart legend ──
+    (function drawChartLegend() {
+      const ly = cy + 7.5;
+      let lx = MAR;
+      doc.setFontSize(6.2); doc.setFont('helvetica','normal'); doc.setTextColor(0);
+
+      const lineItem = (color, dash, label) => {
+        doc.setDrawColor(...color); doc.setLineWidth(0.6);
+        if (dash) doc.setLineDashPattern([0.8,0.6], 0); else doc.setLineDashPattern([],0);
+        doc.line(lx, ly, lx+5, ly);
+        doc.setLineDashPattern([],0);
+        doc.text(label, lx+6.5, ly+0.9);
+        lx += 6.5 + doc.getTextWidth(label) + 4;
+      };
+      const dotItem = (color, label) => {
+        doc.setFillColor(...color);
+        doc.circle(lx+2.5, ly-0.6, 1.1, 'F');
+        doc.text(label, lx+6.5, ly+0.9);
+        lx += 6.5 + doc.getTextWidth(label) + 4;
+      };
+
+      lineItem([146,64,14], false, '1st Test');
+      lineItem([16,185,129], false, '2nd Test');
+      lineItem([6,182,212], false, '3rd Test');
+      dotItem([239,68,68], 'Below target');
+      lineItem([146,64,14], true, '33.5 MPa (1st)');
+      lineItem([249,115,22], true, '43.7 MPa (2nd)');
+      lineItem([239,68,68], true, '50.0 MPa (3rd)');
+    })();
+
+    doc.setDrawColor(0); doc.setLineWidth(0.3);
+    doc.rect(MAR, cy+9, CW, CHART_H, 'S');
+    safeAddImage(chartImg, MAR, cy+9, CW, CHART_H);
+    cy += CHART_H + 13;
+
+    // ── Data table ──
+    pdfToast('Building data table…', 60);
+    await new Promise(r => setTimeout(r, 20));
+
+    const snapRows = reportRows.filter(r => r.productionStatus === 'YES');
+
+    const tHead = [[
+      'Casting\nDate','Bed\nNo','Line\nNo',
+      'Daily\nProd.\nQty','Slump\nTest',
+      'Age to\nDate',
+      '1st\nAge','1st Result\n(MPa)',
+      '2nd\nAge','2nd Result\n(MPa)',
+      '3rd\nAge','3rd Result\n(MPa)',
+      'Line\nReleased'
+    ]];
+
+    const tBody = snapRows.map(r => [
+      r.castingDate        || '—',
+      r.bedNo              || '—',
+      r.lineNo             || '—',
+      r.dailyQty != null && r.dailyQty !== 0 ? r.dailyQty : '—',
+      r.slump              || '—',
+      r.ageToDays   != null ? r.ageToDays  : '—',
+      r.test1Age    != null ? r.test1Age   : '—',
+      r.test1Result != null ? String(r.test1Result) : '—',
+      r.test2Age    != null ? r.test2Age   : '—',
+      r.test2Result != null ? String(r.test2Result) : '—',
+      r.test3Age    != null ? r.test3Age   : '—',
+      r.test3Result != null ? String(r.test3Result) : '—',
+      r.lineReleasedDate   || '—',
+    ]);
+
+    doc.autoTable({
+      head: tHead,
+      body: tBody,
+      startY: cy,
+      margin: { left: MAR, right: MAR },
+      tableWidth: CW,
+      styles: {
+        fontSize: 6,
+        cellPadding: {top:1, bottom:1, left:1, right:1},
+        textColor: [0,0,0],
+        fillColor: [255,255,255],
+        lineColor: [0,0,0],
+        lineWidth: 0.18,
+        halign: 'center',
+        valign: 'middle',
+        overflow: 'linebreak',
+        minCellHeight: 5,
+      },
+      headStyles: {
+        fillColor: [255,255,255],
+        textColor: [0,0,0],
+        fontStyle: 'bold',
+        fontSize: 5.8,
+        halign: 'center',
+        valign: 'middle',
+        minCellHeight: 8,
+        lineColor: [0,0,0],
+        lineWidth: 0.3,
+      },
+      alternateRowStyles: {
+        fillColor: [245,245,245],
+      },
+      columnStyles: {
+        0:{cellWidth:20}, 1:{cellWidth:13}, 2:{cellWidth:13},
+        3:{cellWidth:13}, 4:{cellWidth:14}, 5:{cellWidth:11},
+        6:{cellWidth:11}, 7:{cellWidth:17}, 8:{cellWidth:11},
+        9:{cellWidth:17}, 10:{cellWidth:11}, 11:{cellWidth:17},
+        12:{cellWidth:18},
+      },
+      didParseCell(data) {
+        if (data.section !== 'body') return;
+        const row = snapRows[data.row.index];
+        if (!row) return;
+        // Highlight fail result cells with a light tint matching each test's color
+        if (data.column.index === 7 && row.test1Result !== null && row.test1Result < 33.5) {
+          data.cell.styles.fillColor = [255, 243, 205]; // light amber (1st test)
+          data.cell.styles.textColor = [180, 60, 0];
+          data.cell.styles.fontStyle = 'bold';
+        }
+        if (data.column.index === 9 && row.test2Result !== null && row.test2Result < 43.7) {
+          data.cell.styles.fillColor = [209, 250, 229]; // light green (2nd test)
+          data.cell.styles.textColor = [4, 120, 87];
+          data.cell.styles.fontStyle = 'bold';
+        }
+        if (data.column.index === 11 && row.test3Result !== null && row.test3Result < 50.0) {
+          data.cell.styles.fillColor = [207, 250, 254]; // light cyan (3rd test)
+          data.cell.styles.textColor = [14, 116, 144];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      },
+      didDrawPage(data) {
+        drawChrome('CUBE TEST RESULT', doc.internal.getNumberOfPages());
+      },
+    });
+
+    // ── Save ──
+    pdfToast('Saving PDF…', 92);
+    await new Promise(r => setTimeout(r, 20));
+
+    const fname = `Cube_Test_${activeSite}_${statusLabel}${tenderLabel?'_'+tenderLabel:''}_${now.toISOString().slice(0,10)}.pdf`;
+    doc.save(fname);
+
+    pdfToast('✅ PDF downloaded!', 100);
+    pdfToastHide();
+    btn.disabled = false;
+    btn.innerHTML = PDF_ICON;
+
+  } catch(err) {
+    console.error('PDF error:', err);
+    document.getElementById('pdf-toast').classList.remove('show');
+    alert('PDF generation failed: ' + err.message);
+    btn.disabled = false;
+    btn.innerHTML = PDF_ICON;
+  }
+}
+
+</script>
+</body>
+</html>
